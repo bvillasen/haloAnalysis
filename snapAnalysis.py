@@ -24,9 +24,11 @@ linkHP = False
 writeTables = False
 plotMF = False
 starsProfiles = False
+profiles = False
 for option in sys.argv:
   if option == "dproj": plotDensityProjection = True
   if option == "dprof": plotDensityProfile = True
+  if option == "prof": profiles = True
   if option == "sprof": starsProfiles = True
   if option == "fileH": fileHalos = True
   if option == "linkHP": linkHP = True
@@ -120,10 +122,6 @@ for snapshot in snapshots:
   ms_haloIds_catalog[snapshot]  = [ hId for hId in ms_halosData[snapshot].keys() if hId!='all' ]
   ms_halosMass[snapshot] = [ (hId, ms_halosData[snapshot][hId].attrs['mbound_vir']) for hId in ms_haloIds_catalog[snapshot]]
   ms_hostId[snapshot] = max( ms_halosMass[snapshot], key=lambda x: x[1] )
-  #Particles Ids
-  #if not linkHP:
-    #halosPartsFile = outputDir + 'halosParts_{0}.h5'.format(snapshot)
-    #ms_halosPartsIds[snapshot] = h5.File( halosPartsFile, 'r' )
 print " Time: ", time.time() - start 
 
 print "\nLoading particles data..."
@@ -278,18 +276,6 @@ for snapshot in snapshots:
   ms_halosWithStars[snapshot]['all'] = halosWithStarsAll
 print " Time: ", time.time() - start  
 
-
-##snapshot = 0
-##haloIds = ms_halosWithStars[snapshot]['SM'] 
-##haloIndx_t = np.where( ms_treesCatalog[snapshot]['SM'] > 0 )[0]
-##haloIds_t = ms_treesCatalog[snapshot]['Orig_halo_ID'][haloIndx_t]
-##ids = [hId for hId in haloIds if hId not in haloIds_t ]
-##for hId in ms_halosWithStars[1]['SM']:
-  ##hId = int(hId)
-  ##if hId in ms_deletedCatalog[1]['Original_ID']:
-  ##print hId
-
-
 print '\nAnalysing in-halo star mass...'
 start = time.time()
 ms_inHaloStarMass = {}
@@ -310,7 +296,6 @@ for snapshot in snapshots:
       nStarInHalos[finder] = {}
       for hId in halosWithStars[finder]:
 	starsIds = inHalosPartsIds[str(hId)]['star_'+finder][...]
-	#if finder == 'rks': starsIds = starsIds - ( nGas + nDM )
 	starsIds.sort()
 	stellarMass = (starMasses[starsIds]).sum()
 	nStarInHalos[finder][hId] = len(starsIds)
@@ -319,19 +304,197 @@ for snapshot in snapshots:
   ms_nStarsInHalos[snapshot] = nStarInHalos
 print " Time: ", time.time() - start       
 
-#print '\nAnalysing in-halo unbound stars...'
-#start = time.time()
-#snapshot = 2
-#nGas, nDM = ms_nPart[snapshot]['gas'], ms_nPart[snapshot]['dm']
-#for hId in ms_halosWithStars[snapshot]['SM']:
-  #hId = str(hId)
-  #if hId == ms_hostId[snapshot][0]: continue
-  #starsIds_rks = set( (ms_halosPartsIds[snapshot][str(hId)]['star_rks'][...]- ( nGas + nDM )).tolist() )
-  #starsIds_rvir = set(  ms_halosPartsIds[snapshot][str(hId)]['star_pos_rvir'][...].tolist() )
-  #starsIds_unbound = starsIds_rvir - starsIds_rks 
-  #starsIds_unbound_1 = starsIds_rks - starsIds_rvir 
-  ##print hId,len(starsIds_rks), len(starsIds_unbound), len(starsIds_unbound_1)
-#print " Time: ", time.time() - start       
+import visual as vi
+def vis3d():
+  #3D visualization
+  
+  snapshot = 2
+  pPos = ms_partsData[snapshot]['star']['pos'][...]
+  limits = np.array([ [pPos[:,0].min(), pPos[:,0].max() ],
+		      [pPos[:,1].min(), pPos[:,1].max() ], 
+		      [pPos[:,2].min(), pPos[:,2].max() ] ] )
+  posRange = limits[:,1]-limits[:,0]
+  center = limits.sum( axis=1 )/2.
+  scene = vi.display(title='Galaxies', center=center, background=(0,0,0))
+  center1 = limits[:,0]
+  center2 = limits[:,1]
+  center3 = ( limits[0,0], limits[1,0], limits[2,1] )
+  center4 = ( limits[0,1], limits[1,1], limits[2,0] )
+  center5 = ( limits[0,0], limits[1,1], limits[2,1] )
+  center6 = ( limits[0,1], limits[1,0], limits[2,1] )
+  r = 0.004
+  box = [ vi.cylinder( pos=center1, axis=(posRange[0], 0, 0 ), radius=r ),
+	  vi.cylinder( pos=center1, axis=(0, posRange[1], 0 ), radius=r ),
+	  vi.cylinder( pos=center1, axis=(0, 0, posRange[2] ), radius=r ),
+	  vi.cylinder( pos=center2, axis=(-posRange[0], 0, 0 ), radius=r ),
+	  vi.cylinder( pos=center2, axis=(0, -posRange[1], 0 ), radius=r ),
+	  vi.cylinder( pos=center2, axis=(0, 0, -posRange[2] ), radius=r ),
+	  vi.cylinder( pos=center3, axis=(posRange[0], 0, 0 ), radius=r ),
+	  vi.cylinder( pos=center3, axis=(0, posRange[1], 0 ), radius=r ),
+	  vi.cylinder( pos=center4, axis=(-posRange[0], 0, 0 ), radius=r ),
+	  vi.cylinder( pos=center4, axis=(0, -posRange[1], 0 ), radius=r ),
+	  vi.cylinder( pos=center5, axis=(0, 0, -posRange[2] ), radius=r ),
+	  vi.cylinder( pos=center6, axis=(0, 0, -posRange[2] ), radius=r ) ]
+  hostId  = ms_hostId[snapshot][0]
+  hostPos = ms_halosData[snapshot][hostId].attrs['pos']
+  hostRadius = ms_halosData[snapshot][hostId].attrs['rvir']
+  hostSphere = vi.sphere(pos=hostPos, radius=hostRadius, opacity=0.2)
+  satelites = {}
+  for hId in ms_halosWithStars[snapshot]['SM']:
+    hId = str( hId )
+    if hId == hostId: continue 
+    sm = ms_halosData[snapshot][ hId ].attrs['SM']
+    if sm < 1e6: continue
+    satelites[hId] = {}
+    inHaloPartIds  = ms_halosPartsIds[snapshot][ hId ]['star_bound'][...] 
+    inHaloPartPos  = pPos[inHaloPartIds]
+    color = np.random.rand(3)
+    satelites[hId]['points'] = vi.points(pos=inHaloPartPos, size=2, color=color)
+    disp = np.array([0., 0.1, 0.])
+    #satelites[hId]['text'] = vi.text(pos=inHaloPartPos+disp, )
+#vis3d()
+
+
+
+
+#Virial threshold
+CRITICAL_DENSITY = 2.77519737e11 # 3H^2/8piG in (Msun / h) / (Mpc / h)^3
+
+
+if profiles:
+  print "\nDensity and vel_distb profiles..."
+  start = time.time()
+  snapshot = 2
+  output = outputDir + 'profiles/snap_{0}'.format(snapshot)
+  if not os.path.exists( output ): os.makedirs( output )
+  output1 = output + '/density'
+  if not os.path.exists( output1 ): os.makedirs( output1 )
+  output2 = output + '/vel_distb'
+  if not os.path.exists( output2 ): os.makedirs( output2 )
+  hostId  = ms_hostId[snapshot][0]
+  hostPos = ms_halosData[snapshot][ hostId ].attrs['pos']*1e3
+  for hId in ms_halosWithStars[snapshot]['SM']:
+    #hId = hostId
+    hId = str( hId )
+    #density
+    fig1 = plt.figure(1)
+    fig1.clf()
+    ax1 = fig1.add_subplot(111)
+    #vel_distb
+    fig2 = plt.figure(2)
+    fig2.clf()
+    ax2 = fig2.add_subplot(111)
+    #Dens and vel dist
+    fig3, ax3 = plt.subplots( 2, sharex=True )
+    fig3.set_size_inches(8,10)
+    #fig3.clf()
+    legends, legends1 = [], []
+    minBinCenter, maxBinCenter = 1000, 0
+    sMass      = ms_halosData[snapshot][ hId ].attrs['SM']
+    if sMass < 1e6: continue
+    haloPos    = ms_halosData[snapshot][ hId ].attrs['pos']*1e3
+    haloVel    = ms_halosData[snapshot][ hId ].attrs['vel']
+    haloRadius = ms_halosData[snapshot][ hId ].attrs['rvir']*1e3
+    haloMass   = ms_halosData[snapshot][ hId ].attrs['mbound_vir']
+    dist       = np.sqrt( np.sum( (haloPos - hostPos)**2, axis=-1) )
+    for pType in ['star','dm']:
+      #pType = 'star'
+      particlesPos  = ms_partsData[snapshot][pType]['pos'][...]*1e3
+      particlesVel  = ms_partsData[snapshot][pType]['vel'][...]
+      particlesMass = ms_partsData[snapshot][pType]['mass'][...]
+      finder_list = [ 'bound', 'pos_rvir']
+      for finder in finder_list:
+      #finder = 'bound'
+	inHaloPartIds  = ms_halosPartsIds[snapshot][ hId ][pType+ '_' + finder][...] 
+	inHaloPartPos  = particlesPos[inHaloPartIds]
+	inHaloPartVel  = particlesVel[inHaloPartIds]
+	inHaloPartMass = particlesMass[inHaloPartIds]
+	posRel       = inHaloPartPos - haloPos
+	velRel       = inHaloPartVel - haloVel
+	distToCenter = np.sqrt( np.sum(posRel**2, axis=-1) )
+	sortedIndx   = distToCenter.argsort()
+	distToCenter = distToCenter[sortedIndx]
+	posRel       = posRel[sortedIndx]
+	velRel       = velRel[sortedIndx]
+	posNormalizer = np.tile( distToCenter, (3,1) ).T
+	posRel = posRel/posNormalizer #Normalize position vector
+	radialVel =np.array([ posRel[i].dot(velRel[i]) for i in range(len(distToCenter)) ]) 
+	inHaloPartMass = inHaloPartMass[sortedIndx]
+	rMin, rMax = 0.1, distToCenter.max()
+	################################################
+	#binCenters, densProf, kinmProf = mha.profiles_exp( rMin, rMax, distToCenter, inHaloPartMass, inHaloPartVel,  nBins=20 )
+	nBins = 15
+	distMaskIds = np.where( ( distToCenter > rMin ) * ( distToCenter <= rMax ) )[0]
+	left, right = distMaskIds[0], distMaskIds[-1]
+	#binEdges   = np.exp(np.linspace(np.log(1e-1), np.log(rMax*(1.00001)), nBins))
+	binEdges    = np.logspace( -1, np.log10(rMax*1.01), base=10, num=nBins)
+	#binCenters = np.sqrt(binEdges[:-1]*binEdges[1:])
+	binCenters  = np.zeros(nBins-1)
+	binVols     = np.zeros(nBins-1)
+	hist, histBinEdges  = np.histogram(distToCenter, bins=binEdges)
+	shellVol = 4.*np.pi/3*(binEdges[1:]**3 - binEdges[:-1]**3)
+	#nParticles = inHaloPartMass.shape[0]
+	massDist = np.zeros(nBins-1)
+	kinmProf = np.zeros(nBins-1)
+	start = left 
+	for i in range(nBins-1):
+	  end = start + hist[i]
+	  binWidth = distToCenter[end-1] - distToCenter[start]
+	  binCenter = distToCenter[start:end].mean()
+	  binCenters[i] = binCenter
+	  binVols[i] = 4. * np.pi * binCenter**2 * binWidth
+	  massDist[i] = (inHaloPartMass[start:end]).sum()
+	  velsBin = radialVel[start:end]
+	  velAvg = velsBin.mean()
+	  kinmProf[i] = np.sqrt( ( ( velsBin - velAvg )**2 ).sum()/hist[i] )
+	  start = end
+	densProf = massDist/shellVol
+	###############################################
+	minBinCenter = min( binCenters[0], minBinCenter )
+	maxBinCenter = max( binCenters[-1], maxBinCenter )
+	legends.append(pType + '_' + finder)
+	ax1.loglog( binCenters, densProf, '-o' )
+	ax2.plot( binCenters, kinmProf, '-o' )
+	if (finder=='bound'): 
+	  legends1.append(pType + '_' + finder)
+	  ax3[0].loglog( binCenters, densProf, '-o' )
+	  ax3[1].semilogx( binCenters, kinmProf, '-o' )
+    ax1.axvline( x=haloRadius, color='y')
+    ax1.set_xlim(minBinCenter, maxBinCenter)
+    ax1.set_xlabel(r'r [kpc]')
+    ax1.set_ylabel(r'Density $[{\rm M_{\odot} kpc^{-3}  }]$')
+    ax1.set_title('id:{2}, mDM:{0:1.1e},  mS:{3:1.1e},  dist:{1:.0f} kpc'.format(haloMass, float(dist), hId, sMass) )
+    ax1.legend(legends, loc=0)
+    fig1.savefig( output1 + '/dPrf_{0}.png'.format(hId) ) 
+    ax2.axvline( x=haloRadius, color='y')
+    ax2.set_xlim(minBinCenter, maxBinCenter)
+    ax2.set_xscale('log')
+    ax2.set_xlabel(r'r [kpc]')
+    ax2.set_ylabel(r'Radial Velocity Dispersion $[{\rm  km/seg  }]$')
+    ax2.set_title('id:{2}, mDM:{0:1.1e},  mS:{3:1.1e},  dist:{1:.0f} kpc'.format(haloMass, float(dist), hId, sMass) )
+    ax2.legend(legends, loc=0)
+    fig2.savefig( output2 + '/kPrf_{0}.png'.format(hId) ) 
+    ax3[0].axvline( x=haloRadius, color='y')
+    ax3[0].set_ylabel(r'Density $[{\rm M_{\odot} kpc^{-3}  }]$')
+    ax3[0].set_title('id:{2}, mDM:{0:1.1e},  mS:{3:1.1e},  dist:{1:.0f} kpc'.format(haloMass, float(dist), hId, sMass) )
+    ax3[0].legend(legends1, loc=0) 
+    ax3[1].axvline( x=haloRadius, color='y')
+    ax3[1].set_xlim(minBinCenter, maxBinCenter)
+    ax3[1].set_xlabel(r'r [kpc]')
+    ax3[1].set_ylabel(r'Radial Velocity Dispersion $[{\rm  km/seg  }]$')
+    #ax3[1].legend(legends, loc=0)
+    fig3.subplots_adjust(hspace=0)
+    fig3.savefig( output + '/prf_{0}.png'.format(hId) )
+    fig3.clf()
+  print " Time: ", time.time() - start  
+
+
+
+
+
+
+
+
 
 
 
@@ -394,38 +557,38 @@ if plotDensityProfile:
   output = outputDir + '/densityProfile'
   if not os.path.exists( output ): os.makedirs(output) 
   DM_particleMass = 92496.7  
-  ms_dProfiles = {}
-  ms_dProfiles_ext = {}
+  #ms_dProfiles = {}
+  ms_dProfiles_dif = {}
   ms_dProfiles_com = {}
   #for snapshot in snapshots:
   for snapshot in [2]:
-    dProfiles = {}
-    dProfiles_ext = {}
+    #dProfiles = {}
+    dProfiles_dif = {}
     dProfiles_com = {}
     particlesPos = ms_partsData[snapshot]['dm']['pos'][...]*1e3
     for hId in ms_halosWithStars[snapshot]['SM']:
       hId = str(hId)
-      dProfiles[hId] = {}
-      dProfiles_ext[hId] = {}
+      #dProfiles[hId] = {}
+      dProfiles_dif[hId] = {}
       dProfiles_com[hId] = {}
-      for finder in  ['pos_rvir', 'rks', 'bound']:
+      for finder in  ['pos_rvir',  'bound']:
 	haloPos = ms_halosData[snapshot][ hId ].attrs['pos']*1e3
 	haloRadius = ms_halosData[snapshot][ hId ].attrs['rvir']*1e3
 	inHaloPartIds = ms_halosPartsIds[snapshot][ hId ]['dm_'+finder][...] 
 	inHaloPartPos = particlesPos[inHaloPartIds]
-	dProf = mha.getDensityProfile( haloPos, haloRadius, 
-				inHaloPartPos, DM_particleMass, nBins=30)
-	dProfiles[hId][finder] = dProf
+	#dProf = mha.getDensityProfile( haloPos, haloRadius, 
+				#inHaloPartPos, DM_particleMass, nBins=30)
+	#dProfiles[hId][finder] = dProf
 	#Extended
-	dProf_ext = mha.getDensityProfile_ext(haloPos, haloRadius, 
+	dProf_dif = mha.getDensityProfile_dif(haloPos, haloRadius, 
 				inHaloPartPos, DM_particleMass, nBins=30)
-	dProfiles_ext[hId][finder] = dProf_ext
+	dProfiles_dif[hId][finder] = dProf_dif
 	#Comulative
 	dProf_com = mha.getDensityProfile_com(haloPos, haloRadius, 
 				inHaloPartPos, DM_particleMass, nBins=30)
 	dProfiles_com[hId][finder] = dProf_com
-    ms_dProfiles[snapshot] = dProfiles
-    ms_dProfiles_ext[snapshot] = dProfiles_ext
+    #ms_dProfiles[snapshot] = dProfiles
+    ms_dProfiles_dif[snapshot] = dProfiles_dif
     ms_dProfiles_com[snapshot] = dProfiles_com
     
     
@@ -434,11 +597,11 @@ if plotDensityProfile:
   for snapshot in [2]:
     output1 = outputDir + '/densityProfile/snap_{0}'.format(snapshot)
     if not os.path.exists( output1 ): os.makedirs(output1) 
-    #NFW fit
-    output2 = output1 + '/NFW_fit'
-    if not os.path.exists( output2 ): os.makedirs(output2)
+    ##NFW fit
+    #output2 = output1 + '/NFW_fit'
+    #if not os.path.exists( output2 ): os.makedirs(output2)
     #Extended
-    output3 = output1 + '/extended'
+    output3 = output1 + '/differential'
     if not os.path.exists( output3): os.makedirs(output3)
     #Comulative
     output4 = output1 + '/comulative'
@@ -447,14 +610,14 @@ if plotDensityProfile:
     hostPos = ms_halosData[snapshot][ hostId ].attrs['pos']*1e3
     for hId in ms_halosWithStars[snapshot]['SM']:
       hId = str(hId)
-      fig1 = plt.figure(1)
-      fig1.clf()
-      ax1 = fig1.add_subplot(111)
-      #NFW_fit
-      fig2 = plt.figure(2)
-      fig2.clf()
-      ax2 = fig2.add_subplot(111)
-      #Alternative
+      #fig1 = plt.figure(1)
+      #fig1.clf()
+      #ax1 = fig1.add_subplot(111)
+      ##NFW_fit
+      #fig2 = plt.figure(2)
+      #fig2.clf()
+      #ax2 = fig2.add_subplot(111)
+      #Differential
       fig3 = plt.figure(3)
       fig3.clf()
       ax3 = fig3.add_subplot(111)
@@ -468,46 +631,44 @@ if plotDensityProfile:
       dist = np.sqrt( np.sum(posRel**2, axis=-1) )
       haloRadius = ms_halosData[snapshot][ hId ].attrs['rvir']*1e3
       rs = ms_halosData[snapshot][ hId ].attrs['Rs']*1e3
-      for finder in  ['pos_rvir', 'rks', 'bound']:
-	#Normal
-	dProf = ms_dProfiles[snapshot][hId][finder] 
-	ax1.loglog(dProf[1], dProf[0] )    
+      for finder in  ['pos_rvir',  'bound']:
+	##Normal
+	#dProf = ms_dProfiles[snapshot][hId][finder] 
+	#ax1.loglog(dProf[1], dProf[0] )    
 	#NFW fitting
-	if finder == 'rks':	  
-	  #Fit
-	  popt, pcov = curve_fit(toFit_NFW, dProf[1], dProf[0])
-	  rho0 = popt[0]
-	  ax2.loglog(dProf[1], dProf[0] )
-	  ax2.loglog(dProf[1], mha.densityNFW( dProf[1], rho0 ,rs ) )
+	#if finder == 'rks':	  
+	  ##Fit
+	  #popt, pcov = curve_fit(toFit_NFW, dProf[1], dProf[0])
+	  #rho0 = popt[0]
+	  #ax2.loglog(dProf[1], dProf[0] )
+	  #ax2.loglog(dProf[1], mha.densityNFW( dProf[1], rho0 ,rs ) )
 	#Extended
-	dProf_ext = ms_dProfiles_ext[snapshot][hId][finder]
-	ax3.loglog(dProf_ext[1], dProf_ext[0] )    
+	dProf_dif = ms_dProfiles_dif[snapshot][hId][finder]
+	ax3.loglog(dProf_dif[1], dProf_dif[0] )    
 	#Comulative
 	dProf_com = ms_dProfiles_com[snapshot][hId][finder]
 	ax4.loglog(dProf_com[1], dProf_com[0] ) 
-      ax1.set_xlabel(r'r [kpc]')
-      ax1.set_ylabel(r'Density $[{\rm M_{\odot} kpc^{-3}  }]$')
-      ax1.set_title('id:{2},    mass:{0:1.2e} Msun,    dist:{1:.0f} kpc'.format(haloMass, float(dist), hId) )
-      ax1.legend(['pos_rvir', 'rks', 'bound'], loc=0)
-      fig1.savefig( output1 + '/dPrf_{0}.png'.format(hId) )
-      ax2.set_xlabel(r'r [kpc]')
-      ax2.set_ylabel(r'Density $[{\rm M_{\odot} kpc^{-3}  }]$')
-      ax2.set_title('id:{2},    mass:{0:1.2e} Msun,    dist:{1:.0f} kpc'.format(haloMass, float(dist), hId) )
-      ax2.legend([ 'rks', 'fit_NFW'], loc=0)
-      fig2.savefig( output2 + '/dPrf_{0}.png'.format(hId) )	
+      #ax1.set_xlabel(r'r [kpc]')
+      #ax1.set_ylabel(r'Density $[{\rm M_{\odot} kpc^{-3}  }]$')
+      #ax1.set_title('id:{2},    mass:{0:1.2e} Msun,    dist:{1:.0f} kpc'.format(haloMass, float(dist), hId) )
+      #ax1.legend(['pos_rvir', 'rks', 'bound'], loc=0)
+      #fig1.savefig( output1 + '/dPrf_{0}.png'.format(hId) )
+      #ax2.set_xlabel(r'r [kpc]')
+      #ax2.set_ylabel(r'Density $[{\rm M_{\odot} kpc^{-3}  }]$')
+      #ax2.set_title('id:{2},    mass:{0:1.2e} Msun,    dist:{1:.0f} kpc'.format(haloMass, float(dist), hId) )
+      #ax2.legend([ 'rks', 'fit_NFW'], loc=0)
+      #fig2.savefig( output2 + '/dPrf_{0}.png'.format(hId) )	
       ax3.set_xlabel(r'r [kpc]')
       ax3.set_ylabel(r'Density $[{\rm M_{\odot} kpc^{-3}  }]$')
       ax3.set_title('id:{2},    mass:{0:1.2e} Msun,    dist:{1:.0f} kpc'.format(haloMass, float(dist), hId) )
-      ax3.legend(['pos_rvir', 'rks', 'bound'], loc=0)
+      ax3.legend(['pos_rvir',  'bound'], loc=0)
       fig3.savefig( output3 + '/dPrf_{0}.png'.format(hId) )
       ax4.set_xlabel(r'r [kpc]')
       ax4.set_ylabel(r'Comulative Density $[{\rm M_{\odot} kpc^{-3}  }]$')
       ax4.set_title('id:{2},    mass:{0:1.2e} Msun,    dist:{1:.0f} kpc'.format(haloMass, float(dist), hId) )
-      ax4.legend(['pos_rvir', 'rks', 'bound'], loc=0)
+      ax4.legend(['pos_rvir', 'bound'], loc=0)
       ax4.axvline( x=haloRadius, color='y')
       fig4.savefig( output4 + '/dPrf_{0}.png'.format(hId) )      
-
-
   print " Time: ", time.time() - start 
 
 
@@ -547,11 +708,12 @@ if starsProfiles:
       fig1.savefig( output5 + '/dPrf_{0}.png'.format(hId) ) 
   print " Time: ", time.time() - start 
 
-#print "\nStellar kinematic profiles..."
+
+#print "\nStellar vel_distb profiles..."
 #start = time.time()
 #snapshot = 2
 #output = outputDir + 'densityProfile/snap_{0}'.format(snapshot)
-#output1 = output + '/stars/kinematic'
+#output1 = output + '/stars/vel_distb'
 #if not os.path.exists( output1): os.makedirs(output1)
 #hostId = ms_hostId[snapshot][0]
 #hostPos = ms_halosData[snapshot][ hostId ].attrs['pos']*1e3
@@ -648,7 +810,7 @@ if writeTables:
     nStarInHalos = ms_nStarsInHalos[snapshot]
     inHaloPartsIds = ms_halosPartsIds[snapshot]
     nGas, nDM = ms_nPart[snapshot]['gas'], ms_nPart[snapshot]['dm']
-    writeHaloTable( output, snapshot, hostId, halosData, allHalosWithStars, inHaloPartsIds, dmMass, nGas, starMassInHalos, nStarInHalos )
+    writeHaloTable( output, snapshot, hostId, halosData, allHalosWithStars, inHaloPartsIds, dmMass, starMass, nGas, starMassInHalos, nStarInHalos )
   print " Time: ", time.time() - start  
 
 
