@@ -62,7 +62,7 @@ getBoundCommand = '/home/bruno/apps/rockstar-galaxies_new/examples/calc_potentia
 listFiles = [outputDir + f for f in os.listdir( outputDir ) if f.find(".list")>=0 ]
 boundFiles = [outputDir + f for f in os.listdir( outputDir ) if f.find("boundParticles")>=0 ]
 snapshots = sorted( [ int(f[f.find('.list')-1]) for f in listFiles ], reverse=True)
-snapshots = [ 2 ]
+snapshots = [ 3 ]
 print "\nAnalysing  snapshots: ", snapshots
 
 
@@ -326,6 +326,42 @@ inputDir = dataDir + 'halos/{0}/multi_snap/'.format(paramNumber_rks)
 centersDir = outputDir + 'moveCenters/'
 ms_halosData_rks = {}
 ms_rksCenters = {}
+findCenter_rks = False
+if findCenter_rks:
+  for snapshot in snapshots:
+    halosFile = inputDir + 'halosData_{0}.h5'.format(snapshot)
+    ms_halosData_rks[snapshot] = h5.File( halosFile, 'r' )
+    print ' Finding rks centers...'
+    snapshot = max(snapshots)
+    ms_halos_rksId = {}
+    data_rks = ms_halosData_rks[snapshot]
+    data     = ms_halosData[snapshot]
+    allIds = set([hId for hId in data_rks.keys() if hId != 'all'])
+    param_list = [ 'x', 'y', 'z', 'vx', 'vy', 'vz' ]
+    ms_halos_rksId[snapshot] = {}
+    outData = []
+    for hId in ms_halosWithStars[snapshot]['SM']:
+      posibleIds = allIds.copy()
+      diff = 0.20
+      while len( posibleIds ) > 1:
+	for param in param_list:
+	  val = data[str(hId)].attrs[param]
+	  posibleIds_p = tools.getCloseIdsParam( val, data_rks, param, diff, posibleIds)
+	  posibleIds = posibleIds.intersection(posibleIds_p)
+	diff -= 0.005
+      ms_halos_rksId[snapshot][hId] = posibleIds
+      if len( posibleIds ) > 0:
+	id_rks = posibleIds.pop()
+	center_rks = data_rks[id_rks].attrs['pos']*1e3
+      else:
+	id_rks = -1
+	center_rks = ms_halosData[snapshot][str(hId)].attrs['pos']*1e3
+      outData.append( [ int( hId ), int( id_rks ), center_rks[0], center_rks[1], center_rks[2] ])
+    outData = np.array(outData)
+    output = outputDir + 'moveCenters/'
+    if not os.path.exists( output ): os.makedirs( output )
+    np.savetxt( output + 'rks_centers_{0}.dat'.format(snapshot), outData )
+
 for snapshot in snapshots:
   ms_rksCenters[snapshot] = {}
   halosFile = inputDir + 'halosData_{0}.h5'.format(snapshot)
@@ -336,63 +372,184 @@ for snapshot in snapshots:
     ms_rksCenters[snapshot][hId] = {}
     ms_rksCenters[snapshot][hId]['id_rks'] = int(center[1])
     ms_rksCenters[snapshot][hId]['pos'] = center[2:]
-findCenter_rks = False
-if findCenter_rks:
-  print ' Finding rks centers...'
-  snapshot = max(snapshots)
-  ms_halos_rksId = {}
-  data_rks = ms_halosData_rks[snapshot]
-  data     = ms_halosData[snapshot]
-  allIds = set([hId for hId in data_rks.keys() if hId != 'all'])
-  param_list = [ 'x', 'y', 'z', 'vx', 'vy', 'vz' ]
-  ms_halos_rksId[snapshot] = {}
-  outData = []
-  for hId in ms_halosWithStars[snapshot]['SM']:
-    posibleIds = allIds.copy()
-    diff = 0.09
-    while len( posibleIds ) > 1:
-      for param in param_list:
-	val = data[str(hId)].attrs[param]
-	posibleIds_p = tools.getCloseIdsParam( val, data_rks, param, diff, posibleIds)
-	posibleIds = posibleIds.intersection(posibleIds_p)
-      diff -= 0.005
-    ms_halos_rksId[snapshot][hId] = posibleIds
-    id_rks = posibleIds.pop()
-    center_rks = data_rks[id_rks].attrs['pos']*1e3
-    outData.append( [ int( hId ), int( id_rks ), center_rks[0], center_rks[1], center_rks[2] ])
-  outData = np.array(outData)
+print " Time: ", time.time() - start 
+
+############################################################################## 
+
+def getBallFromMassRatio( ballCenter, radiusInitial, massRatio, partMass_inHalo, tree):
+  ball_pos    = ballCenter
+  ball_radius = radiusInitial
+  mass_total      = partMass_inHalo.sum()
+  massRatio_current = 0 
+  while massRatio_current < massRatio:
+    inBall_ids = tree.query_ball_point( ball_pos, ball_radius )
+    inBall_mass = partMass_inHalo[inBall_ids].sum()
+    massRatio_current = inBall_mass/mass_total
+    #print massRatio
+    ball_radius += 0.5
+  return ball_radius, massRatio_current 
+
+def findCM( ball_pos, ball_radius, partMass_inHalo, partPos_inHalo, tree  ):
+  inBall_ids = tree.query_ball_point( ball_pos, ball_radius )
+  p_mass = partMass_inHalo[inBall_ids]
+  p_pos  = partPos_inHalo[inBall_ids]
+  cm = np.sum( (p_mass[:,None]*p_pos)/(p_mass.sum()), axis=0 )
+  return cm, len( inBall_ids )  
+
+def findCenter_recursive( pos, radius, partMass_inHalo, partPos_inHalo, tree ):
+  factor = 0.7
+  nPartMin = 5
+  rMin = 0.1
+  cm, nInBall = findCM( pos, radius, partMass_inHalo, partPos_inHalo, tree )
+  print '   nInBall: {0}          cm:{1}'.format(nInBall, cm)
+  if nInBall < nPartMin or radius < rMin: return pos, radius
+  findCenter_recursive( cm, radius*factor, partMass_inHalo, partPos_inHalo, tree )
+  
+def findCenter( posInit, radiusInit, rMin, nPartMin, partMass_inHalo, partPos_inHalo, tree ):
+  pos = posInit.copy()
+  radius = radiusInit
+  factor = 0.99
+  cm, nInBall = findCM( pos, radius, partMass_inHalo, partPos_inHalo, tree )
+  #while nInBall > nPartMin and radius > rMin:
+  while True:
+    print '   cm:{1} n:{0} r:{2}'.format(nInBall, cm, radius)
+    radius_new = radius*factor
+    cm_new, nInBall_new = findCM( cm, radius, partMass_inHalo, partPos_inHalo, tree )
+    if nInBall_new < nPartMin or radius_new < rMin: return cm, radius, nInBall
+    cm, radius, nInBall = cm_new, radius_new, nInBall_new
+  #return cm, radius, nInBall
+  
+  
+  
+if moveCM: 
+  print '\nGetting halo-galaxy position off-set...'
+  start = time.time()
   output = outputDir + 'moveCenters/'
   if not os.path.exists( output ): os.makedirs( output )
-  np.savetxt( output + 'rks_centers_{0}.dat'.format(snapshot), outData )
-print " Time: ", time.time() - start 
+  snapshot = max(snapshots)
+  hostId = ms_hostId[snapshot][0]
+  hostPos = ms_halosData[snapshot][hostId].attrs['pos']*1e3
+  for pType in [ 'star', 'dm' ]:
+    #pType = 'star'
+    centerData = []
+    partsPos  = ms_partsData[snapshot][pType]['pos'][...]*1e3
+    partsMass = ms_partsData[snapshot][pType]['mass'][...]
+    for hId in ms_halosWithStars[snapshot]['SM']:
+      #hId = ms_hostId[snapshot][0]
+      hId = str( hId )
+      if hId == hostId: continue
+      print 'Halo : {0}'.format( hId )
+      haloPos   = ms_halosData[snapshot][hId].attrs['pos']*1e3
+      haloRvir  = ms_halosData[snapshot][hId].attrs['rvir']*1e3
+      haloRvmax = ms_halosData[snapshot][hId].attrs['rvmax']*1e3
+      rMin = 0.13
+      nPartMin = 5
+      inHaloPartIds   = ms_halosPartsIds[snapshot][hId][pType+'_bound'][...]
+      partPos_inHalo  = partsPos[inHaloPartIds] 
+      partMass_inHalo = partsMass[inHaloPartIds]
+      tree = KDTree( partPos_inHalo )
+      print "   Initial sphere:"  
+      ball_pos = haloPos
+      massRatio = 0.6 if pType == 'star' else 0.6
+      ball_radius, massRatio_i = getBallFromMassRatio( haloPos, haloRvmax, massRatio, partMass_inHalo, tree )
+      print '    massRatio_i: {0}'.format(massRatio_i)
+      print '    ball_radius: {0}, rvmax: {1}, rvir: {2}'.format( ball_radius, haloRvmax, haloRvir )
+      center, radius_f, nInBall_f = findCenter( ball_pos, ball_radius, rMin, nPartMin, partMass_inHalo, partPos_inHalo, tree )
+      print '   cm:{1} n:{0} r:{2}'.format(nInBall_f, center, radius_f)
+      centerData.append([ int(hId), nInBall_f, radius_f, center[0], center[1], center[2]])
+    centerData = np.array( centerData )
+    h = '#hId, nInBall, ball_radius, CM_ball_final, '
+    np.savetxt(output + 'centers_{0}_{1}_{2}_byCM.dat'.format(snapshot, pType, int(rMin*1000) ), centerData, header=h )     
 
  
 print '\nLoading centers...'
 start = time.time() 
 inputDir = outputDir + 'moveCenters/'
 ms_centers = {}
+rMin = 0.130
 snapshot = max(snapshots)
 ms_centers[snapshot] = {}
 for pType in [ 'star', 'dm' ]:
-  centers = np.loadtxt( inputDir + 'centers_{0}_{1}.dat'.format(snapshot, pType) )
-  centers_CM = np.loadtxt( inputDir + 'centers_{0}_{1}_byCM.dat'.format(snapshot, pType) )
+  centers_CM = np.loadtxt( inputDir + 'centers_{0}_{1}_{2}_byCM.dat'.format(snapshot, pType, int(rMin*1000) ) )
   ms_centers[snapshot][pType] = {}
-  for center in centers:
-    ms_centers[snapshot][pType][str( int(center[0]) )] = {}
-    ms_centers[snapshot][pType][str( int(center[0]) )]['grad'] = center[2:5]
-    ms_centers[snapshot][pType][str( int(center[0]) )]['cm_i'] = center[5:8]
-    ms_centers[snapshot][pType][str( int(center[0]) )]['cm_f'] = center[8:11]
   for center in centers_CM:
-    if str(int(center[0]))== ms_hostId[snapshot][0]:continue
+    ms_centers[snapshot][pType][str( int(center[0]) )] = {}
     ms_centers[snapshot][pType][str( int(center[0]) )]['CM'] = center[3:]
 print " Time: ", time.time() - start  
 
+def printCenters( snapshot=3 ):
+  for hId in ms_halosWithStars[snapshot]['SM']:
+    hId = str( hId )
+    haloPos = ms_halosData[snapshot][hId].attrs['pos']*1e3
+    cm_s    = ms_centers[snapshot]['star'][hId]['CM']
+    cm_dm   = ms_centers[snapshot]['dm'][hId]['CM']
+    if ms_rksCenters[snapshot][hId]['id_rks']>0: c_rks   = ms_rksCenters[snapshot][hId]['pos'] 
+    else: c_rks = ' RKS-halo not found'
+    print 'Halo: {0}\n rks: {1}\n cm_d:{2}\n cm_s:{3}\n pos: {4}\n'.format(hId, c_rks, cm_dm, cm_s, haloPos)
+############################################################################### 
 
-############################################################################## 
-from scipy.optimize import curve_fit
 
-def hernquist( r, rho0, r0, a, b, c ):
-  return rho0 * ( r0/r )**a * ( 1 + ( r/r0 )**b )**( (a-c)/b )
+#snapshot = max(snapshots)
+#hostId  = ms_hostId[snapshot][0]
+##hId = hostId
+#hId = '737'  
+#haloPos    = ms_halosData[snapshot][ hId ].attrs['pos']*1e3
+#haloVel    = ms_halosData[snapshot][ hId ].attrs['vel']
+#beta = {}
+#pType = 'dm'
+#particlesPos  = ms_partsData[snapshot][pType]['pos'][...]*1e3
+#particlesVel  = ms_partsData[snapshot][pType]['vel'][...]
+#particlesMass = ms_partsData[snapshot][pType]['mass'][...]
+#finder = 'bound'
+#inHaloPartIds  = ms_halosPartsIds[snapshot][ hId ][pType+'_'+finder][...] 
+#inHaloPartPos  = particlesPos[inHaloPartIds]
+#inHaloPartVel  = particlesVel[inHaloPartIds]
+#inHaloPartMass = particlesMass[inHaloPartIds]
+#new_center = ms_centers[snapshot][pType][hId]['CM']
+#new_center     = haloPos
+#posRel       = inHaloPartPos - new_center
+#velRel       = inHaloPartVel - haloVel
+#distToCenter = np.sqrt( np.sum(posRel**2, axis=-1) )
+#sortedIndx   = distToCenter.argsort()
+#distToCenter   = distToCenter[sortedIndx]
+#inHaloPartMass = inHaloPartMass[sortedIndx]
+#posRel         = posRel[sortedIndx]
+#velRel         = velRel[sortedIndx]
+##posRel         = posRel/(distToCenter[:,None]) #Normalize position vector
+#radial_vec, theta_vec, phi_vec = spherical_vectors(posRel)
+#vel_radial_val = np.array([ radial_vec[i].dot(velRel[i]) for i in range(len(distToCenter)) ]) 
+#vel_theta_val  = np.array([  theta_vec[i].dot(velRel[i]) for i in range(len(distToCenter)) ])
+#vel_phi_val    = np.array([    phi_vec[i].dot(velRel[i]) for i in range(len(distToCenter)) ])
+#beta[pType] = 1 - (vel_phi_val**2).mean() / (vel_radial_val**2).mean()
+#rMin, rMax = 0.1, distToCenter.max()
+#binCenters, densProf, velProf_rad, velProf_theta, velProf_phi, nPartDist = mha.get_profiles( rMin, rMax, 
+			#distToCenter, inHaloPartMass, vel_radial_val, vel_theta_val, vel_phi_val,
+			#nBins=300, binByPart=True )
+##fitting##########################################
+#def hernquist( r, rho0, r0, a, b, c ):
+  #return rho0 * ( r0/r )**a * ( 1 + ( r/r0 )**b )**( (a-c)/b )
+
+#def NFW( r, rho0, r0 ):
+  #return rho0 / ( ( r/r0 ) * ( 1 + ( r/r0 )**2 ) )
+
+#fit_values_1, fit_cov_1 = curve_fit( hernquist, binCenters[1:], densProf[1:] )
+#rho0, r0, a, b, c = fit_values_1
+#densFit_1 = hernquist( binCenters[1:], rho0, r0, a, b, c )
+
+#fit_values_2, fit_cov_2 = curve_fit( NFW, binCenters[1:], densProf[1:] )
+#rho0, r0 = fit_values_2
+#densFit_2 = NFW( binCenters[1:], rho0, r0 )
+
+#fig = plt.figure(1)
+#fig.clf()
+#plt.loglog( binCenters, densProf, '-o' )
+#plt.loglog( binCenters[1:], densFit_1, '--' )
+#plt.loglog( binCenters[1:], densFit_2, '--' )
+#fig.show()
+
+
+
+
 
 
 if profiles:
@@ -437,18 +594,13 @@ if profiles:
     haloBulkVel = np.array( haloBulkVel )
     beta = {}
     for pType in [ 'star', 'dm']:
-      new_center = haloPos
-      if hId != hostId: 
-	#new_center = ms_rksCenters[snapshot][hId]['pos']
-	#new_center = ms_centers[snapshot][pType][hId]['cm_i']
-	#new_center = ms_centers[snapshot][pType][hId]['cm_f']
-	#new_center = ms_centers[snapshot][pType][hId]['grad']
-	new_center = ms_centers[snapshot][pType][hId]['CM']
+      #new_center = haloPos
+      new_center = ms_centers[snapshot][pType][hId]['CM']
       ## RKS CENTERS FOR DM
       #if pType == 'dm':
-	#new_center = ms_rksCenters[snapshot][hId]['pos']
-	##For halos with unvalid rks_id
-	#if snapshot == 2 and hId in ['1326', '1356']: new_center = ms_centers[snapshot][pType][hId]['CM']
+	#if ms_rksCenters[snapshot][hId]['id_rks']>0:
+	  #new_center = ms_rksCenters[snapshot][hId]['pos']
+	#else: print '  No RKS-halo found: using CM center '
       particlesPos  = ms_partsData[snapshot][pType]['pos'][...]*1e3
       particlesVel  = ms_partsData[snapshot][pType]['vel'][...]
       particlesMass = ms_partsData[snapshot][pType]['mass'][...]
@@ -462,38 +614,28 @@ if profiles:
 	inHaloPartPos  = particlesPos[inHaloPartIds]
 	inHaloPartVel  = particlesVel[inHaloPartIds]
 	inHaloPartMass = particlesMass[inHaloPartIds]
-	#posRel       = inHaloPartPos - haloPos[:-1] if profiles_2d else inHaloPartPos - haloPos
 	posRel       = inHaloPartPos - new_center
-	velRel       = inHaloPartVel - haloVel[:-1] if profiles_2d else inHaloPartVel - haloVel
+	velRel       = inHaloPartVel - haloVel
 	distToCenter = np.sqrt( np.sum(posRel**2, axis=-1) )
 	sortedIndx   = distToCenter.argsort()
 	distToCenter   = distToCenter[sortedIndx]
 	inHaloPartMass = inHaloPartMass[sortedIndx]
 	posRel         = posRel[sortedIndx]
 	velRel         = velRel[sortedIndx]
-	#posNormalizer = np.tile( distToCenter, (3,1) ).T
-	#posRel = posRel/posNormalizer #Normalize position vector
 	posRel       = posRel/(distToCenter[:,None]) #Normalize position vector
-	r_mag, r_vec, theta_mag, theta_vec, phi_mag, phi_vec = sph_array(posRel)
-	#print (r_vec**2).sum(axis=1), (theta_vec**2).sum(axis=1), (phi_vec**2).sum(axis=1)
+	r_vec, theta_vec, phi_vec = spherical_vectors(posRel)
 	vel_radial_val =np.array([ posRel[i].dot(velRel[i]) for i in range(len(distToCenter)) ]) 
-	vel_radial = vel_radial_val[:,None]*posRel
-	vel_ortho  = velRel - vel_radial	
-	#thetaAxis  = np.array([ 1, 0, 0 ])   #Z-axis is the reference axis
-	#phiAxis    = np.array([ 0, 0, 1 ])   #Z-axis is the reference axis
-	vel_theta  = np.array([ theta_vec[i].dot(velRel[i]) for i in range(len(distToCenter)) ])
-	vel_phi    = np.array([ phi_vec[i].dot(velRel[i])   for i in range(len(distToCenter)) ])
-	beta[pType] = 1 - (vel_phi**2).mean() / (vel_radial_val**2).mean()
+	#vel_radial = vel_radial_val[:,None]*posRel
+	#vel_ortho  = velRel - vel_radial	
+	vel_theta_val  = np.array([ theta_vec[i].dot(velRel[i]) for i in range(len(distToCenter)) ])
+	vel_phi_val    = np.array([ phi_vec[i].dot(velRel[i])   for i in range(len(distToCenter)) ])
+	beta[pType] = 1 - (vel_phi_val**2).mean() / (vel_radial_val**2).mean()
 	rMin, rMax = 0.1, distToCenter.max()
 	################################################
-	binCenters, densProf, velProf_rad, velProf_theta, velProf_phi, velProf_ort, velProf_radAbs, nPartDist = mha.profiles( rMin, rMax, 
-			distToCenter, inHaloPartMass, vel_radial_val, vel_ortho, vel_theta, vel_phi,
-			nBins=25, prof2d=profiles_2d, binByPart=True )
+	binCenters, densProf, velProf_rad, velProf_theta, velProf_phi, nPartDist = mha.get_profiles( rMin, rMax, 
+			distToCenter, inHaloPartMass, vel_radial_val, vel_theta_val, vel_phi_val,
+			nBins=15, binByPart=False )
 	###############################################
-	#fitting##########################################
-	#fit_values, fit_cov = curve_fit( hernquist, binCenters[1:], densProf[1:] )
-	#rho0, r0, a, b, c = fit_values
-	#densFit = hernquist( binCenters[1:], rho0, r0, a, b, c )
 	#plotting##########################################
 	minBinCenter = min( binCenters[0], minBinCenter )
 	maxBinCenter = max( binCenters[-1], maxBinCenter )
@@ -511,9 +653,9 @@ if profiles:
 	###############################################
 	if (finder=='bound'): 
 	  if pType == 'star':
-	    ax2.plot( binCenters, velProf_rad, '-o' )
-	    ax2.plot( binCenters, velProf_radAbs, '-o' )
-	    ax2.plot( binCenters, velProf_ort, '-o' )
+	    #ax2.plot( binCenters, velProf_rad, '-o' )
+	    #ax2.plot( binCenters, velProf_radAbs, '-o' )
+	    #ax2.plot( binCenters, velProf_ort, '-o' )
 	    legends2.append( pType + '_' + finder+'_rad')
 	    legends2.append( pType + '_' + finder+'_radAbs')
 	    legends2.append( pType + '_' + finder+'_ort')
@@ -568,94 +710,6 @@ if profiles:
   print " Time: ", time.time() - startT  
 
 
-
-############################################################################## 
-
-def getBallFromMassRatio( ballCenter, radiusInitial, massRatio, partMass_inHalo, tree):
-  ball_pos    = ballCenter
-  ball_radius = radiusInitial
-  mass_total      = partMass_inHalo.sum()
-  massRatio_current = 0 
-  while massRatio_current < massRatio:
-    inBall_ids = tree.query_ball_point( ball_pos, ball_radius )
-    inBall_mass = partMass_inHalo[inBall_ids].sum()
-    massRatio_current = inBall_mass/mass_total
-    #print massRatio
-    ball_radius += 0.5
-  return ball_radius, massRatio_current 
-
-def findCM( ball_pos, ball_radius, partMass_inHalo, partPos_inHalo, tree  ):
-  inBall_ids = tree.query_ball_point( ball_pos, ball_radius )
-  p_mass = partMass_inHalo[inBall_ids]
-  p_pos  = partPos_inHalo[inBall_ids]
-  cm = np.sum( (p_mass[:,None]*p_pos)/(p_mass.sum()), axis=0 )
-  return cm, len( inBall_ids )  
-
-def findCenter_recursive( pos, radius, partMass_inHalo, partPos_inHalo, tree ):
-  factor = 0.7
-  nPartMin = 5
-  rMin = 0.1
-  cm, nInBall = findCM( pos, radius, partMass_inHalo, partPos_inHalo, tree )
-  print '   nInBall: {0}          cm:{1}'.format(nInBall, cm)
-  if nInBall < nPartMin or radius < rMin: return pos, radius
-  findCenter_recursive( cm, radius*factor, partMass_inHalo, partPos_inHalo, tree )
-  
-def findCenter( posInit, radiusInit, partMass_inHalo, partPos_inHalo, tree ):
-  pos = posInit.copy()
-  radius = radiusInit
-  factor = 0.95
-  nPartMin = 5
-  rMin = 0.1
-  cm, nInBall = findCM( pos, radius, partMass_inHalo, partPos_inHalo, tree )
-  #while nInBall > nPartMin and radius > rMin:
-  while True:
-    print '   cm:{1} n:{0} r:{2}'.format(nInBall, cm, radius)
-    radius_new = radius*factor
-    cm_new, nInBall_new = findCM( cm, radius, partMass_inHalo, partPos_inHalo, tree )
-    if nInBall_new < nPartMin or radius_new < rMin: return cm, radius, nInBall
-    cm, radius, nInBall = cm_new, radius_new, nInBall_new
-  #return cm, radius, nInBall
-  
-  
-  
-if moveCM: 
-  print '\nGetting halo-galaxy position off-set...'
-  start = time.time()
-  output = outputDir + 'moveCenters/'
-  if not os.path.exists( output ): os.makedirs( output )
-  snapshot = max(snapshots)
-  hostId = ms_hostId[snapshot][0]
-  hostPos = ms_halosData[snapshot][hostId].attrs['pos']*1e3
-  for pType in [ 'star' ]:
-    #pType = 'star'
-    centerData = []
-    partsPos  = ms_partsData[snapshot][pType]['pos'][...]*1e3
-    partsMass = ms_partsData[snapshot][pType]['mass'][...]
-    for hId in ms_halosWithStars[snapshot]['SM']:
-      #hId = ms_hostId[snapshot][0]
-      hId = str( hId )
-      #if hId == hostId: continue
-      print 'Halo : {0}'.format( hId )
-      haloPos   = ms_halosData[snapshot][hId].attrs['pos']*1e3
-      haloRvir  = ms_halosData[snapshot][hId].attrs['rvir']*1e3
-      haloRvmax = ms_halosData[snapshot][hId].attrs['rvmax']*1e3
-      rMin = 0.1 
-      inHaloPartIds   = ms_halosPartsIds[snapshot][hId][pType+'_bound'][...]
-      partPos_inHalo  = partsPos[inHaloPartIds] 
-      partMass_inHalo = partsMass[inHaloPartIds]
-      tree = KDTree( partPos_inHalo )
-      print "   Initial sphere:"  
-      ball_pos = haloPos
-      massRatio = 0.6 if pType == 'star' else 0.6
-      ball_radius, massRatio_i = getBallFromMassRatio( haloPos, haloRvmax, massRatio, partMass_inHalo, tree )
-      print '    massRatio_i: {0}'.format(massRatio_i)
-      print '    ball_radius: {0}, rvmax: {1}, rvir: {2}'.format( ball_radius, haloRvmax, haloRvir )
-      center, radius_f, nInBall_f = findCenter( ball_pos, ball_radius, partMass_inHalo, partPos_inHalo, tree )
-      print '   cm:{1} n:{0} r:{2}'.format(nInBall_f, center, radius_f)
-      centerData.append([ int(hId), nInBall_f, radius_f, center[0], center[1], center[2]])
-    centerData = np.array( centerData )
-    h = '#hId, nInBall, ball_radius, CM_ball_final, '
-    np.savetxt(output + 'centers_{0}_{1}_byCM.dat'.format(snapshot, pType), centerData, header=h )     
 
 if moveCenter:
   def getBallFromMassRatio( ballCenter, radiusInitial, massRatio, partMass_inHalo, tree):
@@ -761,7 +815,7 @@ if moveCenter:
     moveData = np.array( moveData )
     h = '#hId, ball_radius, ball_pos_new, CM_ball_initial, CM_ball_final, massRatio_i, massRatio_f'
     np.savetxt(output + 'centers_{0}_{1}.dat'.format(snapshot, pType), moveData, header=h )
-print " Time: ", time.time() - start
+  print " Time: ", time.time() - start
 
 ############################################################################## 
 if densProj:
