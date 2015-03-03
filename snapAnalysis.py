@@ -12,9 +12,12 @@ parentDirectory = currentDirectory[:currentDirectory.rfind("/")]
 toolsDirectory = currentDirectory + "/tools"
 sys.path.append( toolsDirectory )
 import multi_haloAnalysis as mha
+import plots
 import tools
 from ms_haloTable import writeHaloTable
 from geometry import *
+from findCenters import *
+
 
 paramNumber = 'rg00'
 
@@ -376,117 +379,329 @@ print " Time: ", time.time() - start
 
 ############################################################################## 
 
-def getBallFromMassRatio( ballCenter, radiusInitial, massRatio, partMass_inHalo, tree):
-  ball_pos    = ballCenter
-  ball_radius = radiusInitial
-  mass_total      = partMass_inHalo.sum()
-  massRatio_current = 0 
-  while massRatio_current < massRatio:
-    inBall_ids = tree.query_ball_point( ball_pos, ball_radius )
-    inBall_mass = partMass_inHalo[inBall_ids].sum()
-    massRatio_current = inBall_mass/mass_total
-    #print massRatio
-    ball_radius += 0.5
-  return ball_radius, massRatio_current 
+#def getBallFromMassRatio( ballCenter, radiusInitial, massRatio, partMass_inHalo, tree):
+  #ball_pos    = ballCenter
+  #ball_radius = radiusInitial
+  #mass_total      = partMass_inHalo.sum()
+  #massRatio_current = 0 
+  #while massRatio_current < massRatio:
+    #inBall_ids = tree.query_ball_point( ball_pos, ball_radius )
+    #inBall_mass = partMass_inHalo[inBall_ids].sum()
+    #massRatio_current = inBall_mass/mass_total
+    ##print massRatio
+    #ball_radius += 0.5
+  #return ball_radius, massRatio_current 
 
-def findCM( ball_pos, ball_radius, partMass_inHalo, partPos_inHalo, tree  ):
-  inBall_ids = tree.query_ball_point( ball_pos, ball_radius )
-  p_mass = partMass_inHalo[inBall_ids]
-  p_pos  = partPos_inHalo[inBall_ids]
-  cm = np.sum( (p_mass[:,None]*p_pos)/(p_mass.sum()), axis=0 )
-  return cm, len( inBall_ids )  
+#def findCM( ball_pos, ball_radius, partMass_inHalo, partPos_inHalo, tree  ):
+  #inBall_ids = tree.query_ball_point( ball_pos, ball_radius )
+  #p_mass = partMass_inHalo[inBall_ids]
+  #p_pos  = partPos_inHalo[inBall_ids]
+  #cm = np.sum( (p_mass[:,None]*p_pos)/(p_mass.sum()), axis=0 )
+  #return cm, len( inBall_ids )  
 
-def findCenter_recursive( pos, radius, partMass_inHalo, partPos_inHalo, tree ):
-  factor = 0.7
-  nPartMin = 5
-  rMin = 0.1
-  cm, nInBall = findCM( pos, radius, partMass_inHalo, partPos_inHalo, tree )
-  print '   nInBall: {0}          cm:{1}'.format(nInBall, cm)
-  if nInBall < nPartMin or radius < rMin: return pos, radius
-  findCenter_recursive( cm, radius*factor, partMass_inHalo, partPos_inHalo, tree )
+#def findCenter_recursive( pos, radius, partMass_inHalo, partPos_inHalo, tree ):
+  #factor = 0.7
+  #nPartMin = 5
+  #rMin = 0.1
+  #cm, nInBall = findCM( pos, radius, partMass_inHalo, partPos_inHalo, tree )
+  #print '   nInBall: {0}          cm:{1}'.format(nInBall, cm)
+  #if nInBall < nPartMin or radius < rMin: return pos, radius
+  #findCenter_recursive( cm, radius*factor, partMass_inHalo, partPos_inHalo, tree )
   
-def findCenter( posInit, radiusInit, rMin, nPartMin, partMass_inHalo, partPos_inHalo, tree ):
-  pos = posInit.copy()
-  radius = radiusInit
-  factor = 0.99
-  cm, nInBall = findCM( pos, radius, partMass_inHalo, partPos_inHalo, tree )
-  #while nInBall > nPartMin and radius > rMin:
-  while True:
-    print '   cm:{1} n:{0} r:{2}'.format(nInBall, cm, radius)
-    radius_new = radius*factor
-    cm_new, nInBall_new = findCM( cm, radius, partMass_inHalo, partPos_inHalo, tree )
-    if nInBall_new < nPartMin or radius_new < rMin: return cm, radius, nInBall
-    cm, radius, nInBall = cm_new, radius_new, nInBall_new
-  #return cm, radius, nInBall
+#def findCenter( posInit, radiusInit, rMin, nPartMin, partMass_inHalo, partPos_inHalo, tree ):
+  #pos = posInit.copy()
+  #radius = radiusInit
+  #factor = 0.99
+  #cm, nInBall = findCM( pos, radius, partMass_inHalo, partPos_inHalo, tree )
+  ##while nInBall > nPartMin and radius > rMin:
+  #while True:
+    #print '   cm:{1} n:{0} r:{2}'.format(nInBall, cm, radius)
+    #radius_new = radius*factor
+    #cm_new, nInBall_new = findCM( cm, radius, partMass_inHalo, partPos_inHalo, tree )
+    #if nInBall_new < nPartMin or radius_new < rMin: return cm, radius, nInBall
+    #cm, radius, nInBall = cm_new, radius_new, nInBall_new
+  ##return cm, radius, nInBall
   
   
   
-if moveCM: 
-  print '\nGetting halo-galaxy position off-set...'
-  start = time.time()
-  output = outputDir + 'moveCenters/'
-  if not os.path.exists( output ): os.makedirs( output )
-  snapshot = max(snapshots)
-  hostId = ms_hostId[snapshot][0]
-  hostPos = ms_halosData[snapshot][hostId].attrs['pos']*1e3
-  for pType in [ 'star', 'dm' ]:
-    #pType = 'star'
-    centerData = []
-    partsPos  = ms_partsData[snapshot][pType]['pos'][...]*1e3
-    partsMass = ms_partsData[snapshot][pType]['mass'][...]
-    for hId in ms_halosWithStars[snapshot]['SM']:
-      #hId = ms_hostId[snapshot][0]
-      hId = str( hId )
-      if hId == hostId: continue
-      print 'Halo : {0}'.format( hId )
-      haloPos   = ms_halosData[snapshot][hId].attrs['pos']*1e3
-      haloRvir  = ms_halosData[snapshot][hId].attrs['rvir']*1e3
-      haloRvmax = ms_halosData[snapshot][hId].attrs['rvmax']*1e3
-      rMin = 0.13
-      nPartMin = 5
-      inHaloPartIds   = ms_halosPartsIds[snapshot][hId][pType+'_bound'][...]
-      partPos_inHalo  = partsPos[inHaloPartIds] 
-      partMass_inHalo = partsMass[inHaloPartIds]
-      tree = KDTree( partPos_inHalo )
-      print "   Initial sphere:"  
-      ball_pos = haloPos
-      massRatio = 0.6 if pType == 'star' else 0.6
-      ball_radius, massRatio_i = getBallFromMassRatio( haloPos, haloRvmax, massRatio, partMass_inHalo, tree )
-      print '    massRatio_i: {0}'.format(massRatio_i)
-      print '    ball_radius: {0}, rvmax: {1}, rvir: {2}'.format( ball_radius, haloRvmax, haloRvir )
-      center, radius_f, nInBall_f = findCenter( ball_pos, ball_radius, rMin, nPartMin, partMass_inHalo, partPos_inHalo, tree )
-      print '   cm:{1} n:{0} r:{2}'.format(nInBall_f, center, radius_f)
-      centerData.append([ int(hId), nInBall_f, radius_f, center[0], center[1], center[2]])
-    centerData = np.array( centerData )
-    h = '#hId, nInBall, ball_radius, CM_ball_final, '
-    np.savetxt(output + 'centers_{0}_{1}_{2}_byCM.dat'.format(snapshot, pType, int(rMin*1000) ), centerData, header=h )     
+#if moveCM: 
+  #print '\nGetting halo-galaxy position off-set...'
+  #start = time.time()
+  #output = outputDir + 'moveCenters/'
+  #if not os.path.exists( output ): os.makedirs( output )
+  #snapshot = max(snapshots)
+  #hostId = ms_hostId[snapshot][0]
+  #hostPos = ms_halosData[snapshot][hostId].attrs['pos']*1e3
+  #for pType in [ 'star', 'dm' ]:
+    ##pType = 'star'
+    #centerData = []
+    #partsPos  = ms_partsData[snapshot][pType]['pos'][...]*1e3
+    #partsMass = ms_partsData[snapshot][pType]['mass'][...]
+    #for hId in ms_halosWithStars[snapshot]['SM']:
+      ##hId = ms_hostId[snapshot][0]
+      #hId = str( hId )
+      #if hId == hostId: continue
+      #print 'Halo : {0}'.format( hId )
+      #haloPos   = ms_halosData[snapshot][hId].attrs['pos']*1e3
+      #haloRvir  = ms_halosData[snapshot][hId].attrs['rvir']*1e3
+      #haloRvmax = ms_halosData[snapshot][hId].attrs['rvmax']*1e3
+      #rMin = 0.13
+      #nPartMin = 5
+      #inHaloPartIds   = ms_halosPartsIds[snapshot][hId][pType+'_bound'][...]
+      #partPos_inHalo  = partsPos[inHaloPartIds] 
+      #partMass_inHalo = partsMass[inHaloPartIds]
+      #tree = KDTree( partPos_inHalo )
+      #print "   Initial sphere:"  
+      #ball_pos = haloPos
+      #massRatio = 0.6 if pType == 'star' else 0.6
+      #ball_radius, massRatio_i = getBallFromMassRatio( haloPos, haloRvmax, massRatio, partMass_inHalo, tree )
+      #print '    massRatio_i: {0}'.format(massRatio_i)
+      #print '    ball_radius: {0}, rvmax: {1}, rvir: {2}'.format( ball_radius, haloRvmax, haloRvir )
+      #center, radius_f, nInBall_f = findCenter( ball_pos, ball_radius, rMin, nPartMin, partMass_inHalo, partPos_inHalo, tree )
+      #print '   cm:{1} n:{0} r:{2}'.format(nInBall_f, center, radius_f)
+      #centerData.append([ int(hId), nInBall_f, radius_f, center[0], center[1], center[2]])
+    #centerData = np.array( centerData )
+    #h = '#hId, nInBall, ball_radius, CM_ball_final, '
+    #np.savetxt(output + 'centers_{0}_{1}_{2}_byCM.dat'.format(snapshot, pType, int(rMin*1000) ), centerData, header=h )     
 
  
 print '\nLoading centers...'
 start = time.time() 
 inputDir = outputDir + 'moveCenters/'
 ms_centers = {}
-rMin = 0.130
+CM_r = 150
 snapshot = max(snapshots)
 ms_centers[snapshot] = {}
-for pType in [ 'star', 'dm' ]:
-  centers_CM = np.loadtxt( inputDir + 'centers_{0}_{1}_{2}_byCM.dat'.format(snapshot, pType, int(rMin*1000) ) )
-  ms_centers[snapshot][pType] = {}
-  for center in centers_CM:
-    ms_centers[snapshot][pType][str( int(center[0]) )] = {}
-    ms_centers[snapshot][pType][str( int(center[0]) )]['CM'] = center[3:]
+for CM_r in [ 100, 120, 130, 150 ]:
+  ms_centers[snapshot][CM_r] = {}
+  for pType in [ 'star', 'dm' ]:
+    centers_CM = np.loadtxt( inputDir + 'centers_{0}_{1}_{2}_byCM.dat'.format(snapshot, pType, int(CM_r) ) )
+    ms_centers[snapshot][CM_r][pType] = {}
+    for center in centers_CM:
+      ms_centers[snapshot][CM_r][pType][str( int(center[0]) )] = {}
+      ms_centers[snapshot][CM_r][pType][str( int(center[0]) )]['CM'] = center[3:]
 print " Time: ", time.time() - start  
 
-def printCenters( snapshot=3 ):
+def printCenters( CM_r, snapshot=3 ):
   for hId in ms_halosWithStars[snapshot]['SM']:
     hId = str( hId )
+    rksFound = True
     haloPos = ms_halosData[snapshot][hId].attrs['pos']*1e3
-    cm_s    = ms_centers[snapshot]['star'][hId]['CM']
-    cm_dm   = ms_centers[snapshot]['dm'][hId]['CM']
+    cm_s    = ms_centers[snapshot][CM_r]['star'][hId]['CM']
+    cm_dm   = ms_centers[snapshot][CM_r]['dm'][hId]['CM']
     if ms_rksCenters[snapshot][hId]['id_rks']>0: c_rks   = ms_rksCenters[snapshot][hId]['pos'] 
-    else: c_rks = ' RKS-halo not found'
-    print 'Halo: {0}\n rks: {1}\n cm_d:{2}\n cm_s:{3}\n pos: {4}\n'.format(hId, c_rks, cm_dm, cm_s, haloPos)
+    else:
+      rksFound = False
+      c_rks = ' RKS-halo not found'
+    dist_DM_S = np.sqrt( ( (cm_s - cm_dm )**2 ).sum() )*1e3
+    print '\nHalo: {0}\n rks: {1}\n cm_d:{2}\n cm_s:{3}\n pos: {4}'.format(hId, c_rks, cm_dm, cm_s, haloPos)
+    if rksFound:
+      dist_rksDM_cmDM = np.sqrt( ( (c_rks - cm_dm )**2 ).sum() )*1e3
+      print 'dist rks_DM-cm_DM: {0:.0f} pc'.format( dist_rksDM_cmDM )
+    print 'dist cm_DM-S: {0:.0f} pc'.format( dist_DM_S )
 ############################################################################### 
+
+
+
+
+
+
+
+if profiles:
+  useRKScenters = False
+  CM_r = 130
+  binByPart = True
+  nBins = 15
+  profDim = 2 if profiles_2d else 3
+  print "\nDensity and vel_distb profiles..."
+  startT = time.time()
+  snapshot = max(snapshots)
+  output = outputDir + 'profiles_{0}'.format( CM_r)
+  if useRKScenters: output += '_rks'
+  if binByPart: output += '_equiP'
+  output += '/snap_{0}'.format(snapshot)
+  if not os.path.exists( output ): os.makedirs( output )
+  output1 = output + '/kinematic'
+  if not os.path.exists( output1 ): os.makedirs( output1 )
+  output2 = output + '/vel_distb'
+  if not os.path.exists( output2 ): os.makedirs( output2 )
+  hostId  = ms_hostId[snapshot][0]
+  hostPos = ms_halosData[snapshot][ hostId ].attrs['pos']*1e3
+  for hId in ms_halosWithStars[snapshot]['SM']:
+    hId = str( hId )
+    if hId == hostId: continue
+    print " Halo: {0}".format(hId)
+    #kinematic
+    fig1, ax1 = plt.subplots( 2, 2, sharex=True )
+    fig1.set_size_inches(16,10)
+    ##vel_distb
+    #fig2 = plt.figure(2)
+    #ax2 = fig2.add_subplot(111)
+    #Dens and vel dist
+    fig3, ax3 = plt.subplots( 2,2)
+    fig3.set_size_inches(16,10)
+    legends1, legends2, legends3 = [], [], []
+    minBinCenter, maxBinCenter = 1000, 0
+    sMass      = ms_halosData[snapshot][ hId ].attrs['SM']
+    if sMass < 1e6: continue
+    haloPos    = ms_halosData[snapshot][ hId ].attrs['pos']*1e3
+    haloVel    = ms_halosData[snapshot][ hId ].attrs['vel']
+    haloRadius = ms_halosData[snapshot][ hId ].attrs['rvir']*1e3
+    haloRvmax = ms_halosData[snapshot][ hId ].attrs['rvmax']*1e3
+    haloVmax = ms_halosData[snapshot][ hId ].attrs['vmax']
+    haloMass   = ms_halosData[snapshot][ hId ].attrs['mbound_vir']
+    dist       = np.sqrt( np.sum( (haloPos - hostPos)**2, axis=-1) )
+    haloBulkVel = [ ms_halosData[snapshot][ hId ].attrs['bulk_vx'],
+		    ms_halosData[snapshot][ hId ].attrs['bulk_vy'],
+		    ms_halosData[snapshot][ hId ].attrs['bulk_vz'] ]
+    haloBulkVel = np.array( haloBulkVel )
+    beta, nParticles, centers = {}, {}, {}
+    for pType in [  'dm', 'star']:
+      #new_center = haloPos
+      new_center = ms_centers[snapshot][CM_r][pType][hId]['CM']
+      # RKS CENTERS FOR DM
+      if pType == 'dm' and useRKScenters:
+	if ms_rksCenters[snapshot][hId]['id_rks']>0:
+	  new_center = ms_rksCenters[snapshot][hId]['pos']
+	else: print '  No RKS-halo found: using CM center '
+      centers[pType] = new_center
+      particlesPos  = ms_partsData[snapshot][pType]['pos'][...]*1e3
+      particlesVel  = ms_partsData[snapshot][pType]['vel'][...]
+      particlesMass = ms_partsData[snapshot][pType]['mass'][...]
+      if profiles_2d:
+	particlesPos = particlesPos[:,:-1]
+	particlesVel = particlesPos[:,:-1]
+      finder_list = [ 'bound' ]
+      for finder in finder_list:
+      #finder = 'bound'
+	inHaloPartIds  = ms_halosPartsIds[snapshot][ hId ][pType+ '_' + finder][...] 
+	nParticles[pType] = len( inHaloPartIds )
+	inHaloPartPos  = particlesPos[inHaloPartIds]
+	inHaloPartVel  = particlesVel[inHaloPartIds]
+	inHaloPartMass = particlesMass[inHaloPartIds]
+	posRel       = inHaloPartPos - new_center
+	velRel       = inHaloPartVel - haloVel
+	distToCenter = np.sqrt( np.sum(posRel**2, axis=-1) )
+	sortedIndx   = distToCenter.argsort()
+	distToCenter   = distToCenter[sortedIndx]
+	inHaloPartMass = inHaloPartMass[sortedIndx]
+	posRel         = posRel[sortedIndx]
+	velRel         = velRel[sortedIndx]
+	posRel       = posRel/(distToCenter[:,None]) #Normalize position vector
+	r_vec, theta_vec, phi_vec = spherical_vectors(posRel)
+	vel_radial_val =np.array([ posRel[i].dot(velRel[i]) for i in range(len(distToCenter)) ]) 
+	#vel_radial = vel_radial_val[:,None]*posRel
+	#vel_ortho  = velRel - vel_radial	
+	vel_theta_val  = np.array([ theta_vec[i].dot(velRel[i]) for i in range(len(distToCenter)) ])
+	vel_phi_val    = np.array([ phi_vec[i].dot(velRel[i])   for i in range(len(distToCenter)) ])
+	sigma_radial2 = ( ( vel_radial_val - vel_radial_val.mean() )**2 ).mean() 
+	sigma_phi2    = ( ( vel_phi_val - vel_phi_val.mean() )**2 ).mean() 
+	beta[pType] = 1 - ( sigma_phi2 / sigma_radial2 )
+	#beta[pType] = 1 - ( (vel_phi_val**2).mean() / (vel_radial_val**2).mean() )
+	rMin, rMax = 0.1, distToCenter.max()
+	################################################
+	binCenters, densProf, velProf_rad, velProf_theta, velProf_phi, betaProf, nPartDist = mha.get_profiles( rMin, rMax, 
+			distToCenter, inHaloPartMass, vel_radial_val, vel_theta_val, vel_phi_val,
+			nBins=nBins, binByPart=binByPart )
+	###############################################
+	#plotting##########################################
+	minBinCenter = min( binCenters[0], minBinCenter )
+	maxBinCenter = max( binCenters[-1], maxBinCenter )
+	#fig1##########################################
+	if pType == 'dm':
+	  ax1[0,0].set_xscale('log')
+	  ax1[0,1].set_xscale('log')
+	  ax1[0,0].errorbar( binCenters, velProf_rad,  yerr=velProf_rad/np.sqrt(nPartDist) )
+	  ax1[0,0].errorbar( binCenters, velProf_phi,  yerr=velProf_phi/np.sqrt(nPartDist) )
+	  ax1[0,0].legend(['dm_radial', 'dm_tang'], loc=0)
+	  ax1[0,1].errorbar( binCenters, betaProf,     yerr=betaProf/np.sqrt(nPartDist) )
+	  
+	if pType == 'star':
+	  ax1[1,0].set_xscale('log')
+	  ax1[1,1].set_xscale('log')
+	  ax1[1,0].errorbar( binCenters, velProf_rad,  yerr=velProf_rad/np.sqrt(nPartDist)  )
+	  ax1[1,0].errorbar( binCenters, velProf_phi,  yerr=velProf_phi/np.sqrt(nPartDist) )
+	  ax1[1,0].legend(['st_radial', 'st_tang'], loc=0)	
+	  ax1[1,1].errorbar( binCenters, betaProf,     yerr=betaProf/np.sqrt(nPartDist) )
+	###############################################
+	if (finder=='bound'): 
+	  #if pType == 'star':
+	    ##ax2.plot( binCenters, velProf_rad, '-o' )
+	    ##ax2.plot( binCenters, velProf_radAbs, '-o' )
+	    ##ax2.plot( binCenters, velProf_ort, '-o' )
+	    #legends2.append( pType + '_' + finder+'_rad')
+	    #legends2.append( pType + '_' + finder+'_radAbs')
+	    #legends2.append( pType + '_' + finder+'_ort')
+	  ax3[1,0].set_xscale('log')
+	  ax3[0,0].loglog(   binCenters, densProf, '-o' )
+	  ax3[1,0].errorbar( binCenters, velProf_rad, yerr=velProf_rad/np.sqrt(nPartDist) )
+	  #ax3[1,1].set_xscale('log')
+	  ax3[0,1].set_yscale('log')
+	  ax3[0,1].plot(  nPartDist, '-o'  )
+	  ax3[1,1].plot(  binCenters, '-o' )
+	  legends3.append(pType + '_' + finder)
+    CM_dist = np.sqrt( ( ( centers['dm'] - centers['star'] )**2 ).sum() )*1000
+    ax1[0,0].axvline( x=haloRadius, color='y')
+    ax1[0,0].axvline( x=haloRvmax, color='m')
+    ax1[1,0].axvline( x=haloRadius, color='y')
+    ax1[1,0].axvline( x=haloRvmax, color='m')
+    ax1[0,1].axvline( x=haloRadius, color='y')
+    ax1[0,1].axvline( x=haloRvmax, color='m')
+    ax1[1,1].axvline( x=haloRadius, color='y')
+    ax1[1,1].axvline( x=haloRvmax, color='m')
+    ax1[0,0].axhline( y=haloVmax, color='c')
+    ax1[1,0].axhline( y=haloVmax, color='c')
+    ax1[0,1].axhline( y=0, color='g')
+    ax1[1,1].axhline( y=0, color='g')
+    ax1[0,0].set_xlim(minBinCenter, maxBinCenter)
+    ax1[0,1].set_ylim(-1, 1)
+    ax1[1,1].set_ylim(-1, 1)
+    #ax1[0].set_xlabel(r'r [kpc]')
+    ax1[1,0].set_xlabel(r'r [kpc]')
+    ax1[1,1].set_xlabel(r'r [kpc]')
+    ax1[0,0].set_ylabel(r'DM Velocity Dispersion $[{\rm  km/seg  }]$')
+    ax1[1,0].set_ylabel(r'Stars Velocity Dispersion $[{\rm  km/seg  }]$')
+    ax1[0,1].set_ylabel(r'$\beta_{\rm DM}$', rotation="horizontal")
+    ax1[1,1].set_ylabel(r'$\beta_{\rm S}$' , rotation="horizontal")
+    ax1[0,0].set_title('id:{2}, mDM:{0:1.1e},  mS:{3:1.1e},  d:{1:.0f} kpc,  nS:{4:1.1e}'.format(haloMass, float(dist), hId, sMass, nParticles['star'] ) )
+    ax1[0,1].set_title('Bdm: {0:.2f}  Bs:{1:.2f}'.format( float(beta['dm']), float(beta['star']) ) )
+    
+    #legends1 = [ 'radial', 'theta' ]
+    #ax1.legend(legends1, loc=0)
+    fig1.subplots_adjust(hspace=0)
+    fig1.savefig( output1 + '/kPrf_{0}.png'.format(hId) ) 
+    fig1.clf()
+    #ax2.axvline( x=haloRadius, color='y')
+    #ax2.set_xlim(minBinCenter, maxBinCenter)
+    #ax2.set_xscale('log')
+    #ax2.set_xlabel(r'r [kpc]')
+    #ax2.set_ylabel(r'Radial Velocity Dispersion $[{\rm  km/seg  }]$')
+    #ax2.set_title('id:{2}, mDM:{0:1.1e},  mS:{3:1.1e},  dist:{1:.0f} kpc'.format(haloMass, float(dist), hId, sMass) )
+    #ax2.legend(legends2, loc=0)
+    #fig2.savefig( output2 + '/kPrf_{0}.png'.format(hId) )
+    #fig2.clf()
+    ax3[0,0].axvline( x=haloRadius, color='y')
+    ax3[0,0].axvline( x=haloRvmax, color='m')
+    ax3[0,0].set_ylabel(r'Density $[{\rm M_{\odot} kpc^{-3}  }]$')
+    ax3[0,0].set_title('id:{2}, mDM:{0:1.1e},  mS:{3:1.1e},  d:{1:.0f} kpc\nnS:{4:1.1e} CM_dist:{5:.0f}'.format(haloMass, float(dist), hId, sMass, nParticles['star'], CM_dist  ) )
+    ax3[0,0].legend(legends3, loc=0) 
+    ax3[1,0].axvline( x=haloRadius, color='y')
+    ax3[1,0].axvline( x=haloRvmax, color='m')
+    ax3[1,0].set_xlim(rMin - 1e-2, maxBinCenter)
+    ax3[0,0].set_xlim(rMin - 1e-2, maxBinCenter)
+    ax3[1,1].set_ylim(0 , haloRadius/3)
+    ax3[1,0].set_ylabel(r'Radial Velocity Dispersion $[{\rm  km/seg  }]$')
+    ax3[1,0].set_xlabel(r'r [kpc]')
+    ax3[1,1].set_xlabel(r'Bin number')
+    ax3[1,1].set_ylabel(r'Bin center [kpc]')
+    ax3[0,1].set_ylabel(r'num particles in bin ')
+    ax3[1,1].axhline( y=haloRadius, color='y')
+    ax3[1,1].axhline( y=haloRvmax, color='m')
+    #ax3[1].legend(legends, loc=0)
+    fig3.subplots_adjust(hspace=0)
+    fig3.savefig( output + '/prf_{0}.png'.format(hId) )
+    fig3.clf()
+  print " Time: ", time.time() - startT  
 
 
 #snapshot = max(snapshots)
@@ -546,169 +761,6 @@ def printCenters( snapshot=3 ):
 #plt.loglog( binCenters[1:], densFit_1, '--' )
 #plt.loglog( binCenters[1:], densFit_2, '--' )
 #fig.show()
-
-
-
-
-
-
-if profiles:
-  profDim = 2 if profiles_2d else 3
-  print "\nDensity and vel_distb profiles..."
-  startT = time.time()
-  snapshot = max(snapshots)
-  output = outputDir + 'profiles/snap_{0}'.format(snapshot)
-  if not os.path.exists( output ): os.makedirs( output )
-  output1 = output + '/kinematic'
-  if not os.path.exists( output1 ): os.makedirs( output1 )
-  output2 = output + '/vel_distb'
-  if not os.path.exists( output2 ): os.makedirs( output2 )
-  hostId  = ms_hostId[snapshot][0]
-  hostPos = ms_halosData[snapshot][ hostId ].attrs['pos']*1e3
-  for hId in ms_halosWithStars[snapshot]['SM']:
-    hId = str( hId )
-    if hId == hostId: continue
-    print " Halo: {0}".format(hId)
-    #kinematic
-    fig1, ax1 = plt.subplots( 2, sharex=True )
-    fig1.set_size_inches(8,10)
-    #vel_distb
-    fig2 = plt.figure(2)
-    ax2 = fig2.add_subplot(111)
-    #Dens and vel dist
-    fig3, ax3 = plt.subplots( 2, sharex=True )
-    fig3.set_size_inches(8,10)
-    legends1, legends2, legends3 = [], [], []
-    minBinCenter, maxBinCenter = 1000, 0
-    sMass      = ms_halosData[snapshot][ hId ].attrs['SM']
-    if sMass < 1e6: continue
-    haloPos    = ms_halosData[snapshot][ hId ].attrs['pos']*1e3
-    haloVel    = ms_halosData[snapshot][ hId ].attrs['vel']
-    haloRadius = ms_halosData[snapshot][ hId ].attrs['rvir']*1e3
-    haloRvmax = ms_halosData[snapshot][ hId ].attrs['rvmax']*1e3
-    haloMass   = ms_halosData[snapshot][ hId ].attrs['mbound_vir']
-    dist       = np.sqrt( np.sum( (haloPos - hostPos)**2, axis=-1) )
-    haloBulkVel = [ ms_halosData[snapshot][ hId ].attrs['bulk_vx'],
-		    ms_halosData[snapshot][ hId ].attrs['bulk_vy'],
-		    ms_halosData[snapshot][ hId ].attrs['bulk_vz'] ]
-    haloBulkVel = np.array( haloBulkVel )
-    beta = {}
-    for pType in [ 'star', 'dm']:
-      #new_center = haloPos
-      new_center = ms_centers[snapshot][pType][hId]['CM']
-      ## RKS CENTERS FOR DM
-      #if pType == 'dm':
-	#if ms_rksCenters[snapshot][hId]['id_rks']>0:
-	  #new_center = ms_rksCenters[snapshot][hId]['pos']
-	#else: print '  No RKS-halo found: using CM center '
-      particlesPos  = ms_partsData[snapshot][pType]['pos'][...]*1e3
-      particlesVel  = ms_partsData[snapshot][pType]['vel'][...]
-      particlesMass = ms_partsData[snapshot][pType]['mass'][...]
-      if profiles_2d:
-	particlesPos = particlesPos[:,:-1]
-	particlesVel = particlesPos[:,:-1]
-      finder_list = [ 'bound' ]
-      for finder in finder_list:
-      #finder = 'bound'
-	inHaloPartIds  = ms_halosPartsIds[snapshot][ hId ][pType+ '_' + finder][...] 
-	inHaloPartPos  = particlesPos[inHaloPartIds]
-	inHaloPartVel  = particlesVel[inHaloPartIds]
-	inHaloPartMass = particlesMass[inHaloPartIds]
-	posRel       = inHaloPartPos - new_center
-	velRel       = inHaloPartVel - haloVel
-	distToCenter = np.sqrt( np.sum(posRel**2, axis=-1) )
-	sortedIndx   = distToCenter.argsort()
-	distToCenter   = distToCenter[sortedIndx]
-	inHaloPartMass = inHaloPartMass[sortedIndx]
-	posRel         = posRel[sortedIndx]
-	velRel         = velRel[sortedIndx]
-	posRel       = posRel/(distToCenter[:,None]) #Normalize position vector
-	r_vec, theta_vec, phi_vec = spherical_vectors(posRel)
-	vel_radial_val =np.array([ posRel[i].dot(velRel[i]) for i in range(len(distToCenter)) ]) 
-	#vel_radial = vel_radial_val[:,None]*posRel
-	#vel_ortho  = velRel - vel_radial	
-	vel_theta_val  = np.array([ theta_vec[i].dot(velRel[i]) for i in range(len(distToCenter)) ])
-	vel_phi_val    = np.array([ phi_vec[i].dot(velRel[i])   for i in range(len(distToCenter)) ])
-	beta[pType] = 1 - (vel_phi_val**2).mean() / (vel_radial_val**2).mean()
-	rMin, rMax = 0.1, distToCenter.max()
-	################################################
-	binCenters, densProf, velProf_rad, velProf_theta, velProf_phi, nPartDist = mha.get_profiles( rMin, rMax, 
-			distToCenter, inHaloPartMass, vel_radial_val, vel_theta_val, vel_phi_val,
-			nBins=15, binByPart=False )
-	###############################################
-	#plotting##########################################
-	minBinCenter = min( binCenters[0], minBinCenter )
-	maxBinCenter = max( binCenters[-1], maxBinCenter )
-	#fig1##########################################
-	if pType == 'dm':
-	  ax1[0].set_xscale('log')
-	  ax1[0].errorbar( binCenters, velProf_rad,    yerr=velProf_rad/np.sqrt(nPartDist) )
-	  ax1[0].errorbar( binCenters, velProf_phi,  yerr=velProf_phi/np.sqrt(nPartDist) )
-	  ax1[0].legend(['dm_radial', 'dm_tang'], loc=0)
-	if pType == 'star':
-	  ax1[1].set_xscale('log')
-	  ax1[1].errorbar( binCenters, velProf_rad,  yerr=velProf_rad/np.sqrt(nPartDist)  )
-	  ax1[1].errorbar( binCenters, velProf_phi,  yerr=velProf_phi/np.sqrt(nPartDist) )
-	  ax1[1].legend(['st_radial', 'st_tang'], loc=0)	
-	###############################################
-	if (finder=='bound'): 
-	  if pType == 'star':
-	    #ax2.plot( binCenters, velProf_rad, '-o' )
-	    #ax2.plot( binCenters, velProf_radAbs, '-o' )
-	    #ax2.plot( binCenters, velProf_ort, '-o' )
-	    legends2.append( pType + '_' + finder+'_rad')
-	    legends2.append( pType + '_' + finder+'_radAbs')
-	    legends2.append( pType + '_' + finder+'_ort')
-	  if errorBar_prof:
-	    ax3[1].set_xscale('log')
-	    ax3[0].loglog( binCenters, densProf, '-o' )
-	    #ax3[0].loglog( binCenters[1:], densFit, '--' )
-	    ax3[1].errorbar( binCenters, velProf_rad, yerr=velProf_rad/np.sqrt(nPartDist) )	    
-	  else:
-	    ax3[0].loglog( binCenters, densProf, '-o' )
-	    ax3[1].semilogx( binCenters, velProf_rad, '-o' )
-	  legends3.append(pType + '_' + finder)
-	  
-    ax1[0].axvline( x=haloRadius, color='y')
-    ax1[0].axvline( x=haloRvmax, color='m')
-    ax1[1].axvline( x=haloRadius, color='y')
-    ax1[1].axvline( x=haloRvmax, color='m')
-    ax1[0].set_xlim(minBinCenter, maxBinCenter)
-    #ax1[0].set_xlabel(r'r [kpc]')
-    ax1[1].set_xlabel(r'r [kpc]')
-    ax1[0].set_ylabel(r'DM Velocity Dispersion $[{\rm  km/seg  }]$')
-    ax1[1].set_ylabel(r'Stars Velocity Dispersion $[{\rm  km/seg  }]$')
-    ax1[0].set_title('id:{2}, mDM:{0:1.1e},  mS:{3:1.1e},  dist:{1:.0f} kpc\n  Bdm: {4:.2f}  Bs:{5:.2f}'.format(haloMass, float(dist), hId, sMass, float(beta['dm']), float(beta['star'])) )
-    #legends1 = [ 'radial', 'theta' ]
-    #ax1.legend(legends1, loc=0)
-    fig1.subplots_adjust(hspace=0)
-    fig1.savefig( output1 + '/kPrf_{0}.png'.format(hId) ) 
-    fig1.clf()
-    ax2.axvline( x=haloRadius, color='y')
-    ax2.set_xlim(minBinCenter, maxBinCenter)
-    ax2.set_xscale('log')
-    ax2.set_xlabel(r'r [kpc]')
-    ax2.set_ylabel(r'Radial Velocity Dispersion $[{\rm  km/seg  }]$')
-    ax2.set_title('id:{2}, mDM:{0:1.1e},  mS:{3:1.1e},  dist:{1:.0f} kpc'.format(haloMass, float(dist), hId, sMass) )
-    ax2.legend(legends2, loc=0)
-    fig2.savefig( output2 + '/kPrf_{0}.png'.format(hId) )
-    fig2.clf()
-    ax3[0].axvline( x=haloRadius, color='y')
-    ax3[0].axvline( x=haloRvmax, color='m')
-    ax3[0].set_ylabel(r'Density $[{\rm M_{\odot} kpc^{-3}  }]$')
-    ax3[0].set_title('id:{2}, mDM:{0:1.1e},  mS:{3:1.1e},  dist:{1:.0f} kpc'.format(haloMass, float(dist), hId, sMass  ) )
-    ax3[0].legend(legends3, loc=0) 
-    ax3[1].axvline( x=haloRadius, color='y')
-    ax3[1].axvline( x=haloRvmax, color='m')
-    ax3[1].set_xlim(rMin - 1e-2, maxBinCenter)
-    ax3[1].set_xlabel(r'r [kpc]')
-    ax3[1].set_ylabel(r'Radial Velocity Dispersion $[{\rm  km/seg  }]$')
-    #ax3[1].legend(legends, loc=0)
-    fig3.subplots_adjust(hspace=0)
-    fig3.savefig( output + '/prf_{0}.png'.format(hId) )
-    fig3.clf()
-  print " Time: ", time.time() - startT  
-
 
 
 if moveCenter:
@@ -851,7 +903,7 @@ def wiewDensity(hId):
 ##############################################################################
 import visual as vi
 def initWindow():
-  snapshot = 2
+  #snapshot = 2
   pPos = ms_partsData[snapshot]['star']['pos'][...]
   limits = np.array([ [pPos[:,0].min(), pPos[:,0].max() ],
 		      [pPos[:,1].min(), pPos[:,1].max() ], 
@@ -916,7 +968,7 @@ def vis3d():
 	     ( 1,0.5,1 ), ( 1,1,0.5 ), ( 1,0.5,0 ), ( 0.8,1,0 ), ( 1,0,0.5 ),    ]
   scene = initWindow()
   anim_satelites = loadAnimData( colors, show=False )
-  anim_snap = 2
+  anim_snap = snapshot
   viewSnapshot( anim_snap, anim_satelites, scene, visible=True)
   
   while True:
