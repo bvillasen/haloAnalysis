@@ -17,9 +17,9 @@ from findCenters import *
 import multi_haloAnalysis as mha
 #from interpolation import *
 from scipy.interpolate import Rbf, InterpolatedUnivariateSpline
+from calculus import *
 
 h = 0.7
-
 
 dataDir = "/home/bruno/Desktop/data/galaxy/Dw9/CDM/"
 starFile = 'Stars_Dw9_CDM_hres.DAT'
@@ -28,7 +28,56 @@ haloCatalogFile = 'hpro_1.000.dat'
 starsKinFile = 'kinematics_star_Dw9hres.DAT'
 
 
+#r = np.arange(0, 10, 1. )
+#data = np.arange(0, 10, 1.)
+#nAverg = 3
+#step = 2
 
+
+def smooth( r, data, nAverg, step ):
+  N = r.shape[0]
+  r_out, data_out = [], [] 
+  left, right = 0, nAverg
+  while right <= N:
+    avr = data[ left : right ].mean()
+    r_out.append( ( r[left] + r[right-1] )/2 )
+    data_out.append( avr )
+    left += step
+    right = left + nAverg
+  return np.array( r_out ), np.array( data_out ) 
+
+def fineProfile_dens( r, mass, npLeft, npRight ):
+  nPart = mass.shape[0]
+  nPts  = nPart - ( npLeft + npRight )
+  dProf = np.zeros( nPts )
+  rProf = np.zeros( nPts )
+  for i in range( nPts ):
+    rL = r[ i ]
+    rR = r[ i + npLeft + npRight  ]
+    shellVol = 4.*np.pi/3 * ( rR**3 - rL**3 )
+    mInShell = mass[ i : i + npLeft + npRight + 1 ].sum()
+    #print mInShell, shellVol
+    rProf[i] = r[ npLeft + i ]
+    dProf[i] = mInShell / shellVol
+  return rProf, dProf
+
+def fineProfile_sigma( r, data, npLeft, npRight ):
+  nPart = data.shape[0]
+  nPts  = nPart - ( npLeft + npRight )
+  rProf = np.zeros( nPts )
+  meanProf = np.zeros( nPts )
+  sigmaProf = np.zeros( nPts )
+  for i in range( nPts ):
+    rL = r[ i ]
+    rR = r[ i + npLeft + npRight  ]
+    inShell_vals = data[ i : i + npLeft + npRight + 1 ]
+    nInShell = len( inShell_vals )
+    inShell_avg = inShell_vals.mean()
+    inShell_sig = np.sqrt( ( ( inShell_vals - inShell_avg )**2 ).mean() )
+    rProf[i] = r[ npLeft + i ]
+    meanProf[i] = inShell_avg
+    sigmaProf[i] = inShell_sig
+  return rProf, meanProf, sigmaProf
 
 
 #Load profiles data from halo catalog
@@ -58,10 +107,11 @@ profiles = {}
 particles = {}
 centers = {}
 for pType in ['star', 'dm']:
+  #pType = 'star'
   profiles[pType] = {}
   particles[pType] = {}
-  
-  
+
+
   print pType
   print "\nLoading simulation data..."
   start = time.time()
@@ -79,12 +129,11 @@ for pType in ['star', 'dm']:
   haloRvir = 73.34
   haloMass = 10**10.46
   starMass = 10**8.55
-  #haloRvir = 160
+
+  #Exclude far partiticles
   #Use origin as center
   dist = np.sqrt( ( particlesPos**2 ).sum(axis=1) )
   distMask = np.where( dist < haloRvir )[0]
-
-
   inHaloPartPos  = particlesPos[distMask]
   inHaloPartVel  = particlesVel[distMask]
   inHaloPartMass = particlesMass[distMask]
@@ -108,17 +157,13 @@ for pType in ['star', 'dm']:
     #center['pType']  = haloCenter
   ##center_star = np.array([ -0.00164466,  0.02685468,  0.00439187] )
   #center_dm   = np.array([ -0.02682095,  0.03045762, -0.00483639] )
-  
+  #center_dm   = np.array([-0.03169116,  0.04313293, -0.00467443]
   center_dm   = np.array([-0.01057742,  0.011094,   0.0036434 ])
   center_star = np.array([-0.01064021,  0.0368292,   0.0058786 ])
-  #center_dm   = np.array([-0.03169116,  0.04313293, -0.00467443])
-
-  #offset = np.sqrt( ( ( center_dm - center_star )**2 ).sum() )
   haloCenter = center_star if pType == 'star' else center_dm
-  #haloCenter = 
   haloVel = 0
   #haloVel = inHaloPartVel.sum(axis=0)/nParticles
-
+  #offset = np.sqrt( ( ( center_dm - center_star )**2 ).sum() )
 
   #Particles properties
   posRel       = inHaloPartPos - haloCenter
@@ -131,23 +176,23 @@ for pType in ['star', 'dm']:
   inHaloPartVel = inHaloPartVel[sortedIndx]
   posRel         = posRel[sortedIndx]
   velRel         = velRel[sortedIndx]
+  #Get velocity components
   radial_vec, theta_vec, phi_vec = spherical_vectors( posRel )  #Tangential is phi vector NOT THETA
-  vel_radial_val = np.array([ radial_vec[i].dot(velRel[i]) for i in range(len(distToCenter)) ]) 
-  vel_tangen_val = np.array([    phi_vec[i].dot(velRel[i]) for i in range(len(distToCenter)) ]) #TANGENTIAL
-  vel_theta_val  = np.array([  theta_vec[i].dot(velRel[i]) for i in range(len(distToCenter)) ])
+  vel_radial_val = np.array([ radial_vec[i].dot(velRel[i]) for i in range(nParticles) ]) 
+  vel_tangen_val = np.array([    phi_vec[i].dot(velRel[i]) for i in range(nParticles) ]) #TANGENTIAL
+  vel_theta_val  = np.array([  theta_vec[i].dot(velRel[i]) for i in range(nParticles) ])
   sigma_rad2 = ( ( vel_radial_val - vel_radial_val.mean() )**2 ).mean()
   sigma_tan2 = ( ( vel_tangen_val - vel_tangen_val.mean() )**2 ).mean()
   beta = 1 - ( sigma_tan2 / sigma_rad2 )
 
+    
   particles[pType]['mass'] = inHaloPartMass
   particles[pType]['dist'] = distToCenter
-
-
 
   #Profiles
   binning = 'pow'
   nPerBin = 5000
-  rMin, rMax = .070, distToCenter.max()
+  rMin, rMax = .300, distToCenter.max()
   nBins = nParticles / nPerBin
   if binning == 'pow' or binning == 'exp': nBins = 160
   binCenters, binWidths, binVols, densProf, velProf_rad, velProf_theta, velProf_phi, betaDist, nPartDist = mha.get_profiles( rMin, rMax,
@@ -169,7 +214,26 @@ for pType in ['star', 'dm']:
   if pType == 'star':
     profiles[pType]['binCenters_dw'] = centersST	
     profiles[pType]['density_dw'] = densityST
-
+  
+  if pType == 'star':
+    #Fine profiles
+    npLeft = 1000
+    npRight = 800
+    rProf_f, dProf_f = fineProfile_dens( distToCenter, inHaloPartMass, npLeft, npRight )
+    #rProf_f, avgVelR_f, sigmaR_f = fineProfile_sigma( distToCenter, vel_radial_val, npLeft, npRight )
+    profiles[pType]['r_fine'] = rProf_f	
+    profiles[pType]['dens_fine'] = dProf_f
+    #profiles[pType]['avgVelR_fine'] = avgVelR_f
+    #profiles[pType]['sigmaR_fine'] = sigmaR_f
+    
+    #Smooth fine profiles
+    nAverg = 5000
+    step = 4000
+    r_smooth , dens_smooth = smooth( rProf_f, dProf_f, nAverg, step )
+    #r_smooth , sigmaR_smooth = smooth( rProf_f, sigmaR_f, nAverg, step )
+    profiles[pType]['r_smooth'] = r_smooth	
+    profiles[pType]['dens_smooth'] = dens_smooth
+    #profiles[pType]['sigmaR_smooth'] = sigmaR_smooth
 #####################################################  
 output =  currentDirectory + '/DW9/{0}/'.format(binning)  
 if not os.path.exists( output ): os.makedirs( output )
@@ -180,148 +244,199 @@ if binning == 'equiPart':
 if binning == 'exp' or binning=='pow': 
   title = 'nBins: {0}'.format( nBins )
   name = '_{0}'.format( nBins )
-plots.plotDensity_p( profiles, haloRvir, haloRvmax, output=output, title=title, name=name, addDW=True )
+plots.plotDensity_p( profiles, haloRvir, haloRvmax, output=output, title=title, name=name, addDW=True, addFine=False, show=False )
 plots.plotKinemat_p( profiles, haloRvir, haloRvmax, output=output, title=title, name=name )
+  
+pType = 'star'
+r        = profiles[pType]['binCenters']
+r_fine   = profiles[pType]['r_fine']
+r_smooth = profiles[pType]['r_smooth']
+
+density = profiles[pType]['density']
+dens_fine = profiles[pType]['dens_fine']
+dens_smooth = profiles[pType]['dens_smooth']
+density_der = derivative( r, density )
+dens_sm_der = derivative( r_smooth, dens_smooth )
+
+ 
+sigmaR   = profiles[pType]['vel_rad']
+sigmaR2  = profiles[pType]['vel_rad']**2
+##sigmaR_fine = profiles[pType]['sigmaR_fine']
+##sigmaR2_fine = sigmaR_fine**2
+##sigmaR_smooth = profiles[pType]['sigmaR_smooth']
+sigmaR2_der = derivative( r, sigmaR2 )
+
+sigmaT  = profiles[pType]['vel_phi']
+sigmaT2 = profiles[pType]['vel_phi']**2
+nPart   = profiles[pType]['nPartDist']
+
+#######################################################
+##from scipy.interpolate import UnivariateSpline
+##def spline( x, y, x_i ):
+  ##spline = UnivariateSpline( x, y, k=5 )
+  ###spline = InterpolatedUnivariateSpline( x, y, k=5 )
+  ###spline = Rbf( x, y, function='quintic' ) 
+  ##y_i = spline( x_i )
+  ##return y_i
+#######################################################
 
 
 
 
-#pType = 'star'
-##interpolate profiles
-#r       = profiles[pType]['binCenters']
-#regionMask = np.where( (r > 0.2) * (r < haloRvmax ) )[0]
-#r       = r[regionMask]
-#density = profiles[pType]['density'][regionMask]
-#sigmaR  = profiles[pType]['vel_rad'][regionMask]
-#sigmaT  = profiles[pType]['vel_phi'][regionMask]
-#nPart   = profiles[pType]['nPartDist'][regionMask]
-#density_der = derivative( r, density )
-#sigmaR_der  = derivative( r, sigmaR )
+###Smoothing
+##nSmooth= 100
+##r_s = np.linspace( r[0], r[-1], nSmooth, endpoint=True )
+##r_s = r.copy()
+##density_s = spline( r, density, r_s )
+##density_der_s = spline( r, density_der, r_s )
+##sigmaR_s  = spline( r, sigmaR,  r_s )
+##sigmaT_s  = spline( r, sigmaT,  r_s )
+##sigmaR2 = sigmaR_s**2
+##sigmaT2 = sigmaT_s**2
+##density_s_der = derivative( r_s, density_s )
+##sigmaR_s_der  = derivative( r_s, sigmaR_s )
+##sigmaR2_der = derivative( r_s, sigmaR2 )
+
 
 
 ######################################################
-#from scipy.interpolate import UnivariateSpline
-#def spline( x, y, x_i ):
-  #spline = UnivariateSpline( x, y, k=5 )
-  ##spline = InterpolatedUnivariateSpline( x, y, k=5 )
-  ##spline = Rbf( x, y, function='quintic' ) 
-  #y_i = spline( x_i )
-  #return y_i
-######################################################
+#Jeans Calc
+G    = 6.67384e-11 #m**3/(kg*s**2)
+mSun = 1.98e30     #kg
+pc   = 3.08e16     #m
+G = G / (1e3*pc) / 1e3**2 * mSun
 
-
-
-
-##Smoothing
-#nSmooth= 100
-#r_s = np.linspace( r[0], r[-1], nSmooth, endpoint=True )
-#r_s = r.copy()
-#density_s = spline( r, density, r_s )
-#density_der_s = spline( r, density_der, r_s )
-#sigmaR_s  = spline( r, sigmaR,  r_s )
-#sigmaT_s  = spline( r, sigmaT,  r_s )
-#sigmaR2 = sigmaR_s**2
-#sigmaT2 = sigmaT_s**2
-#density_s_der = derivative( r_s, density_s )
-#sigmaR_s_der  = derivative( r_s, sigmaR_s )
-#sigmaR2_der = derivative( r_s, sigmaR2 )
 
 #######################################################
-##Jeans Calc
-#G    = 6.67384e-11 #m**3/(kg*s**2)
-#mSun = 1.98e30     #kg
-#pc   = 3.08e16     #m
-#G = G / (1e3*pc) / 1e3**2 * mSun
+#Jeans Diff	
+jR       = r
+jDensity = density
+jDensDer = density_der
+jSigmaR2 = sigmaR2
+jSigR2Der = sigmaR2_der
+jSigmaT2 = sigmaT2
 
-#nPoints = r_s.shape[0]
-##jeansCalc = 'jeansDiff'
-
-#######################################################
-##Jeans Diff	    
-#jeansMassDiff = np.zeros( nPoints )
-#Diff = density_s * sigmaR2_der + sigmaR2 * density_der_s
-##Diff =                            sigmaR2 * density_der_s
-#jM = 1./G * ( r_s**2 / density_s * Diff + 2 * r_s * ( sigmaR2 - sigmaT2 ) )
-##jM = r**2 / ( G * density ) * Diff 
-#jeansMassDiff = -jM
-##jM = r_n**2 / ( G * rho_n ) * Diff + 2*r_n/G*( sigma_r2_n - sigma_t2_n )
-
-#######################################################
-##Jeans Int	    
-#jeansMassInt = np.zeros( nPoints )
-#for n in range(nPoints-1,-1,-1):
-  #rho_n = density_s[n]
-  #r_n   = r_s[n]
-  #dr_n  = r_s[n] if n==0 else r_s[n]-r_s[n-1]
-  #r_right    = r_s[n+1:]
-  #rho_right  = density_s[n+1:]
-  #mass_right = jeansMassInt[n+1:]
-  #integrand  = rho_right * mass_right * r_right**(2*beta-2)
-  #integral = 0 if len(integrand)==0 else simps( integrand, r_right )
-  #sigmaR2_n = sigmaR2[n]
-  #jeansMassInt[n] = sigmaR2_n * r_n**2 / ( G * dr_n ) - integral / ( rho_n * r_n**(2*beta-2) * dr_n )
+Diff = jDensity * jSigR2Der + jSigmaR2 * jDensDer
+#Diff =                        jSigmaR2.mean() * jDensDer
+jM = 1./G * ( jR**2 / jDensity * Diff + 2 * jR * ( jSigmaR2 - jSigmaT2 ) )
+#jM = jR**2 / ( G * jDensity ) * Diff 
+jeansMassDiff_0 = -jM
+jR_0 = jR.copy()
 
 
-######################################################
-##Accum Mass
-#dist_dm = particles['dm']['dist']
-#acumMass_dm = particles['dm']['mass'].cumsum()
+jR       = r_smooth
+jDensity = dens_smooth
+jDensDer = dens_sm_der
+jSigmaR2 = sigmaR2
+###jSigR2Der = sigmaR2_der
+###jSigmaT2 = sigmaT2
 
-#dist_all = np.concatenate( [ dist_dm, particles['star']['dist'] ] )
-#mass_all = np.concatenate( [ particles['dm']['mass'], particles['star']['mass'] ] )
-#sorted_all = dist_all.argsort()
-#dist_all = dist_all[sorted_all]
-#mass_all = mass_all[sorted_all]
-#acumMass_all = mass_all.cumsum()
 
-#################################################################
-##Plot
-#fig, ax = plt.subplots( 2, 2 )
-#fig.set_size_inches(16,10)
-#ax[0,0].loglog( r, density, 'o' )
-#ax[0,0].loglog( r_s, density_s, '-'   )
-#ax[0,0].set_xlim(r[0], r[-1])
+#Diff = jDensity * jSigR2Der + jSigmaR2 * jDensDer
+Diff =                        jSigmaR2.mean() * jDensDer
+#jM = 1./G * ( jR**2 / jDensity * Diff + 2 * jR * ( jSigmaR2 - jSigmaT2 ) )
+jM = jR**2 / ( G * jDensity ) * Diff 
+jeansMassDiff_1 = -jM
+jR_1 = jR.copy()
+########################################################
+###Jeans Int	
 
-#ax[0,1].set_xscale('log')
-##ax[0,1].set_yscale('log')
-#ax[0,1].plot( r, density_der, '-o' )
-#ax[0,1].plot( r_s, density_s_der, '-' )
+##jR       = r
+##jDensity = density
+##jDensDer = density_der
+##jSigmaR2 = sigmaR2
+##jSigR2Der = sigmaR2_der
+##jSigmaT2 = sigmaT2
+
+###jR       = r_s
+###jDensity = density_s
+###jDensDer = density_der_s
+###jSigmaR2 = sigmaR2_s
+###jSigR2Der = sigmaR2_s_der
+###jSigmaT2 = sigmaT2_s
+
+##nPoints = len(jR)
+##jeansMassInt = np.zeros( nPoints )
+##for n in range(nPoints-1,-1,-1):
+  ##r_n   = jR[n]
+  ##dr_n  = dr[n]
+  ##rho_n = jDensity[n]
+  ###dr_n  = jR[n] if n==0 else jR[n]-jR[n-1]
+  ##r_right    = jR[n+1:]
+  ##rho_right  = jDensity[n+1:]
+  ##mass_right = jeansMassInt[n+1:]
+  ##beta_right = betaVal
+  ##integrand  = rho_right * mass_right * r_right**(2*beta_right-2)
+  ##integral = 0 if len(integrand)==0 else simps( integrand, r_right )
+  ##sigmaR2_n = jSigmaR2[n]
+  ##beta_n    = betaVal
+  ##jeansMassInt[n] = sigmaR2_n * r_n**2 / ( G * dr_n ) - integral / ( rho_n * r_n**(2*beta_n-2) * dr_n )
+
+
+
+#####################################################
+#Accum Mass
+dist_dm = particles['dm']['dist']
+acumMass_dm = particles['dm']['mass'].cumsum()
+
+dist_all = np.concatenate( [ dist_dm, particles['star']['dist'] ] )
+mass_all = np.concatenate( [ particles['dm']['mass'], particles['star']['mass'] ] )
+sorted_all = dist_all.argsort()
+dist_all = dist_all[sorted_all]
+mass_all = mass_all[sorted_all]
+acumMass_all = mass_all.cumsum()
+
+###############################################################
+#Plot
+fig, ax = plt.subplots( 2, 2 )
+fig.set_size_inches(16,10)
+ax[0,0].loglog( r, density, 'o' )
+ax[0,0].loglog( r_smooth, dens_smooth, 'o-'   )
+ax[0,0].set_xlim(r[0], r[-1])
+
+ax[0,1].set_xscale('log')
+#ax[0,1].set_yscale('log')
+ax[0,1].plot( r, density_der, '-o' )
+ax[0,1].plot( r_smooth, dens_sm_der, '-o' )
 #ax[0,1].plot( r_s, density_der_s, '-' )
-#ax[0,1].set_xlim(r[0], r[-1])
+ax[0,1].set_xlim(r[0], r[-1])
 
-#ax[1,0].set_xscale('log')
-#ax[1,0].errorbar( r, sigmaR,  yerr=sigmaR/np.sqrt(nPart) )
-#ax[1,0].errorbar( r, sigmaT,  yerr=sigmaT/np.sqrt(nPart) )
-#ax[1,0].plot( r_s, sigmaR_s, '-'   )
+ax[1,0].set_xscale('log')
+ax[1,0].errorbar( r, sigmaR,  yerr=sigmaR/np.sqrt(nPart) )
+ax[1,0].errorbar( r, sigmaT,  yerr=sigmaT/np.sqrt(nPart) )
+#ax[1,0].plot( r_fine, sigmaR_fine, '-'   )
+#ax[1,0].plot( r_smooth, sigmaR_smooth, '-o' )
 #ax[1,0].plot( r_s, sigmaT_s, '-'   )
-#ax[1,0].set_xlim(r[0], r[-1])
+ax[1,0].set_xlim(r[0], r[-1])
 
 ##ax[1,1].set_xscale('log')
 ##ax[1,1].plot( r, sigmaR_der, '-o' )
 ##ax[1,1].plot( r_s, sigmaR_s_der, '-' )
 ##ax[1,1].plot( r_s, sigmaR2_der, '-' )
 ##ax[1,1].plot( r_s, 2*sigmaR_s*sigmaR_s_der, '-' )
-#ax[1,1].set_xscale('log')
-#ax[1,1].set_yscale('log')
-#ax[1,1].plot( dist_dm, acumMass_dm )
-#ax[1,1].plot( dist_all, acumMass_all )
-#ax[1,1].plot( r_s, jeansMassDiff, 'o' )
+ax[1,1].set_xscale('log')
+ax[1,1].set_yscale('log')
+ax[1,1].plot( dist_dm, acumMass_dm )
+ax[1,1].plot( dist_all, acumMass_all )
+ax[1,1].plot( jR_0, jeansMassDiff_0, 'o' )
+ax[1,1].plot( jR_1, jeansMassDiff_1, 'o' )
 ##ax[1,1].plot( r_s, jeansMassInt, 'o' )
-#ax[1,1].set_xlim(r[0], r[-1])
+ax[1,1].set_xlim(r[0], r[-1])
 #ax[1,1].set_ylim(jeansMassDiff[0], jeansMassDiff[-1])
-#fig.subplots_adjust(hspace=0)
 
-#if binning == 'equiPart':  
-  #title = 'NperBin: {0}'.format( nPerBin )
-  #name = 'jeans_{0}'.format(nPerBin) 
-#if binning == 'exp' or binning == 'pow':  
-  #title = 'nBins: {0}'.format( nBins )
-  #name = 'jeans_{0}'.format(nBins) 
-#ax[0,0].set_title(title)
+fig.subplots_adjust(hspace=0)
+
+if binning == 'equiPart':  
+  title = 'NperBin: {0}'.format( nPerBin )
+  name = 'jeans_{0}'.format(nPerBin) 
+if binning == 'exp' or binning == 'pow':  
+  title = 'nBins: {0}'.format( nBins )
+  name = 'jeans_{0}'.format(nBins) 
+ax[0,0].set_title(title)
 #fig.savefig(output+ name +'.png')
-##fig.show()
+fig.show()
 
-#######################################################
+######################################################
 ##if jeansCalc == 'jeansInt':
   ##for n in range(nInterp-1,-1,-1):
     ##rho_n = density_i[n]
