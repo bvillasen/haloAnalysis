@@ -196,11 +196,16 @@ for pType in ['star', 'dm']:
   rMin, rMax = .300, distToCenter.max()
   nBins = nParticles / nPerBin
   if binning == 'pow' or binning == 'exp': nBins = 100
-  binCenters, binWidths, binVols, densProf, velProf_rad, velProf_theta, velProf_phi, betaDist, nPartDist = mha.get_profiles( rMin, rMax,
+  binCenters, binWidths, binVols, densProf, velR_avr, velTH_avr, velT_avr, velProf_rad, velProf_theta, velProf_phi, betaDist, nPartDist = mha.get_profiles( rMin, rMax,
 	      distToCenter, inHaloPartMass, vel_radial_val, vel_theta_val, vel_tangen_val,
 	      nBins=nBins, binning=binning )
 
   profiles[pType]['density'] = densProf
+  #Velocity Avrgs
+  profiles[pType]['vel_rad_avr'] = velR_avr
+  profiles[pType]['vel_theta_avr'] = velTH_avr
+  profiles[pType]['vel_phi_avr'] = velT_avr
+  #Velociy sigma
   profiles[pType]['vel_rad'] = velProf_rad
   profiles[pType]['vel_theta'] = velProf_theta
   profiles[pType]['vel_phi'] = velProf_phi
@@ -215,7 +220,10 @@ for pType in ['star', 'dm']:
   if pType == 'star':
     profiles[pType]['binCenters_dw'] = centersST	
     profiles[pType]['density_dw'] = densityST
-  
+    profiles[pType]['velR_avr_dw'] = starsVelR_avr
+    profiles[pType]['velT_avr_dw'] = starsVelT_avr
+    profiles[pType]['velR_sig_dw'] = starsVelR_sig
+    profiles[pType]['velT_sig_dw'] = starsVelT_sig
   if pType == 'star':
     #Fine profiles
     npLeft = 1000
@@ -251,7 +259,7 @@ if binning == 'exp' or binning=='pow':
   title = 'nBins: {0}'.format( nBins )
   name = '_{0}'.format( nBins )
 plots.plotDensity_p( profiles, haloRvir, haloRvmax, output=output, title=title, name=name, addDW=True, addFine=False, show=False )
-plots.plotKinemat_p( profiles, haloRvir, haloRvmax, output=output, title=title, name=name )
+plots.plotKinemat_p( profiles, haloRvir, haloRvmax, output=output, title=title, name=name, addDW=True)
   
 pType = 'star'
 r        = profiles[pType]['binCenters']
@@ -282,31 +290,28 @@ sigmaT2_smooth = sigmaT_smooth**2
 
 nPart   = profiles[pType]['nPartDist']
 #######################################################
-##from scipy.interpolate import UnivariateSpline
-##def spline( x, y, x_i ):
-  ##spline = UnivariateSpline( x, y, k=5 )
-  ###spline = InterpolatedUnivariateSpline( x, y, k=5 )
-  ###spline = Rbf( x, y, function='quintic' ) 
-  ##y_i = spline( x_i )
-  ##return y_i
+from scipy.interpolate import UnivariateSpline
+def spline( x, y, x_i ):
+  #spline = UnivariateSpline( x, y, k=5 )
+  #spline = InterpolatedUnivariateSpline( x, y, k=5 )
+  spline = Rbf( x, y, function='thin_plate' ) 
+  y_i = spline( x_i )
+  return y_i
 #######################################################
 
 
 
 
-###Smoothing
-##nSmooth= 100
-##r_s = np.linspace( r[0], r[-1], nSmooth, endpoint=True )
-##r_s = r.copy()
-##density_s = spline( r, density, r_s )
-##density_der_s = spline( r, density_der, r_s )
-##sigmaR_s  = spline( r, sigmaR,  r_s )
-##sigmaT_s  = spline( r, sigmaT,  r_s )
-##sigmaR2 = sigmaR_s**2
-##sigmaT2 = sigmaT_s**2
-##density_s_der = derivative( r_s, density_s )
-##sigmaR_s_der  = derivative( r_s, sigmaR_s )
-##sigmaR2_der = derivative( r_s, sigmaR2 )
+#Interpolation using splines 
+nInterp= 100
+r_intrp = np.linspace( r[0], r[-1], nInterp, endpoint=True )
+r_intrp = r_smooth.copy()
+sigmaR_intrp  = spline( r, sigmaR,  r_intrp )
+sigmaT_intrp  = spline( r, sigmaT,  r_intrp )
+sigmaR2_intrp = sigmaR_intrp**2
+sigmaT2_intrp = sigmaT_intrp**2
+sigmaR2_intrp_der  = derivative( r_intrp, sigmaR2_intrp )
+
 
 
 
@@ -338,9 +343,9 @@ jR_0 = jR.copy()
 jR       = r_smooth
 jDensity = dens_smooth
 jDensDer = dens_sm_der
-jSigmaR2 = sigmaR2_smooth
-jSigR2Der = sigmaR2_sm_der
-jSigmaT2 = sigmaT2_smooth
+jSigmaR2 = sigmaR2_intrp
+jSigR2Der = sigmaR2_intrp_der
+jSigmaT2 = sigmaT2_intrp
 
 
 Diff = jDensity * jSigR2Der + jSigmaR2 * jDensDer
@@ -393,6 +398,22 @@ dist_all = dist_all[sorted_all]
 mass_all = mass_all[sorted_all]
 acumMass_all = mass_all.cumsum()
 
+
+
+fig1 = plt.figure()
+fig1.clf()
+ax = fig1.add_subplot(111)
+ax.set_xscale('log')
+ax.set_yscale('log')
+ax.plot( dist_dm, acumMass_dm )
+ax.plot( dist_all, acumMass_all )
+ax.plot( jR_0, jeansMassDiff_0, 'o--' )
+ax.plot( jR_dif, jeansMassDiff_1, 'o--' )
+ax.plot( jR_int, jeansMassInt, 'o--' )
+fig1.show()
+
+
+
 ###############################################################
 #Plot
 fig, ax = plt.subplots( 2, 2 )
@@ -409,17 +430,19 @@ ax[0,1].set_xlim(r[0], r[-1])
 
 ax[1,0].set_xscale('log')
 ax[1,0].errorbar( r, sigmaR,  yerr=sigmaR/np.sqrt(nPart) )
-ax[1,0].plot( r_fine, sigmaR_fine, '-'   )
+#ax[1,0].plot( r_fine, sigmaR_fine, '-'   )
 ax[1,0].plot( r_smooth, sigmaR_smooth, '-o' )
+ax[1,0].plot( r_intrp, sigmaR_intrp, '--' )
 ax[1,0].errorbar( r, sigmaT,  yerr=sigmaT/np.sqrt(nPart) )
-ax[1,0].plot( r_fine, sigmaT_fine, '-'   )
+#ax[1,0].plot( r_fine, sigmaT_fine, '-'   )
 ax[1,0].plot( r_smooth, sigmaT_smooth, '-o' )
+ax[1,0].plot( r_intrp, sigmaT_intrp, '--' )
 ax[1,0].set_xlim(r[0], r[-1])
 
 ax[1,1].set_xscale('log')
 ax[1,1].plot( r, sigmaR2_der, '-o' )
 ax[1,1].plot( r_smooth, sigmaR2_sm_der, '-' )
-##ax[1,1].plot( r_s, 2*sigmaR_s*sigmaR_s_der, '-' )
+ax[1,1].plot( r_intrp, sigmaR2_intrp_der, '-' )
 ax[1,1].set_xlim(r[0], r[-1])
 
 #fig.subplots_adjust(hspace=0)
@@ -433,17 +456,11 @@ ax[0,0].set_title(title)
 #fig.savefig(output+ name +'.png')
 fig.show()
 
-fig1 = plt.figure(1)
-fig1.clf()
-ax = fig1.add_subplot(111)
-ax.set_xscale('log')
-ax.set_yscale('log')
-ax.plot( dist_dm, acumMass_dm )
-ax.plot( dist_all, acumMass_all )
-ax.plot( jR_0, jeansMassDiff_0, 'o--' )
-ax.plot( jR_dif, jeansMassDiff_1, 'o--' )
-ax.plot( jR_int, jeansMassInt, 'o--' )
-fig1.show()
+
+
+
+
+
 
 ######################################################
 ##if jeansCalc == 'jeansInt':
