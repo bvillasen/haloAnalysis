@@ -106,6 +106,7 @@ starsVelT_sig = starsData[:,15]
 profiles = {}
 particles = {}
 centers = {}
+betaVal = {}
 for pType in ['star', 'dm']:
   #pType = 'star'
   profiles[pType] = {}
@@ -183,7 +184,7 @@ for pType in ['star', 'dm']:
   vel_theta_val  = np.array([  theta_vec[i].dot(velRel[i]) for i in range(nParticles) ])
   sigma_rad2 = ( ( vel_radial_val - vel_radial_val.mean() )**2 ).mean()
   sigma_tan2 = ( ( vel_tangen_val - vel_tangen_val.mean() )**2 ).mean()
-  beta = 1 - ( sigma_tan2 / sigma_rad2 )
+  betaVal[pType] = 1 - ( sigma_tan2 / sigma_rad2 )
 
     
   particles[pType]['mass'] = inHaloPartMass
@@ -194,7 +195,7 @@ for pType in ['star', 'dm']:
   nPerBin = 5000
   rMin, rMax = .300, distToCenter.max()
   nBins = nParticles / nPerBin
-  if binning == 'pow' or binning == 'exp': nBins = 160
+  if binning == 'pow' or binning == 'exp': nBins = 100
   binCenters, binWidths, binVols, densProf, velProf_rad, velProf_theta, velProf_phi, betaDist, nPartDist = mha.get_profiles( rMin, rMax,
 	      distToCenter, inHaloPartMass, vel_radial_val, vel_theta_val, vel_tangen_val,
 	      nBins=nBins, binning=binning )
@@ -220,20 +221,25 @@ for pType in ['star', 'dm']:
     npLeft = 1000
     npRight = 800
     rProf_f, dProf_f = fineProfile_dens( distToCenter, inHaloPartMass, npLeft, npRight )
-    #rProf_f, avgVelR_f, sigmaR_f = fineProfile_sigma( distToCenter, vel_radial_val, npLeft, npRight )
+    rProf_f, avgVelR_f, sigmaR_f = fineProfile_sigma( distToCenter, vel_radial_val, npLeft, npRight )
+    rProf_f, avgVelT_f, sigmaT_f = fineProfile_sigma( distToCenter, vel_tangen_val, npLeft, npRight )
     profiles[pType]['r_fine'] = rProf_f	
     profiles[pType]['dens_fine'] = dProf_f
-    #profiles[pType]['avgVelR_fine'] = avgVelR_f
-    #profiles[pType]['sigmaR_fine'] = sigmaR_f
+    profiles[pType]['avgVelR_fine'] = avgVelR_f
+    profiles[pType]['sigmaR_fine'] = sigmaR_f
+    profiles[pType]['avgVelT_fine'] = avgVelT_f
+    profiles[pType]['sigmaT_fine'] = sigmaT_f
     
     #Smooth fine profiles
     nAverg = 5000
-    step = 4000
+    step = 5000
     r_smooth , dens_smooth = smooth( rProf_f, dProf_f, nAverg, step )
-    #r_smooth , sigmaR_smooth = smooth( rProf_f, sigmaR_f, nAverg, step )
+    r_smooth , sigmaR_smooth = smooth( rProf_f, sigmaR_f, nAverg, step )
+    r_smooth , sigmaT_smooth = smooth( rProf_f, sigmaT_f, nAverg, step )
     profiles[pType]['r_smooth'] = r_smooth	
     profiles[pType]['dens_smooth'] = dens_smooth
-    #profiles[pType]['sigmaR_smooth'] = sigmaR_smooth
+    profiles[pType]['sigmaR_smooth'] = sigmaR_smooth
+    profiles[pType]['sigmaT_smooth'] = sigmaT_smooth
 #####################################################  
 output =  currentDirectory + '/DW9/{0}/'.format(binning)  
 if not os.path.exists( output ): os.makedirs( output )
@@ -257,19 +263,24 @@ dens_fine = profiles[pType]['dens_fine']
 dens_smooth = profiles[pType]['dens_smooth']
 density_der = derivative( r, density )
 dens_sm_der = derivative( r_smooth, dens_smooth )
-
  
 sigmaR   = profiles[pType]['vel_rad']
 sigmaR2  = profiles[pType]['vel_rad']**2
-##sigmaR_fine = profiles[pType]['sigmaR_fine']
-##sigmaR2_fine = sigmaR_fine**2
-##sigmaR_smooth = profiles[pType]['sigmaR_smooth']
+sigmaR_fine = profiles[pType]['sigmaR_fine']
+sigmaR2_fine = sigmaR_fine**2
+sigmaR_smooth = profiles[pType]['sigmaR_smooth']
+sigmaR2_smooth = sigmaR_smooth**2
 sigmaR2_der = derivative( r, sigmaR2 )
+sigmaR2_sm_der = derivative( r_smooth, sigmaR2_smooth )
 
 sigmaT  = profiles[pType]['vel_phi']
 sigmaT2 = profiles[pType]['vel_phi']**2
-nPart   = profiles[pType]['nPartDist']
+sigmaT_fine = profiles[pType]['sigmaT_fine']
+sigmaT2_fine = sigmaT_fine**2
+sigmaT_smooth = profiles[pType]['sigmaT_smooth']
+sigmaT2_smooth = sigmaT_smooth**2
 
+nPart   = profiles[pType]['nPartDist']
 #######################################################
 ##from scipy.interpolate import UnivariateSpline
 ##def spline( x, y, x_i ):
@@ -327,51 +338,47 @@ jR_0 = jR.copy()
 jR       = r_smooth
 jDensity = dens_smooth
 jDensDer = dens_sm_der
-jSigmaR2 = sigmaR2
-###jSigR2Der = sigmaR2_der
-###jSigmaT2 = sigmaT2
+jSigmaR2 = sigmaR2_smooth
+jSigR2Der = sigmaR2_sm_der
+jSigmaT2 = sigmaT2_smooth
 
 
-#Diff = jDensity * jSigR2Der + jSigmaR2 * jDensDer
-Diff =                        jSigmaR2.mean() * jDensDer
-#jM = 1./G * ( jR**2 / jDensity * Diff + 2 * jR * ( jSigmaR2 - jSigmaT2 ) )
-jM = jR**2 / ( G * jDensity ) * Diff 
+Diff = jDensity * jSigR2Der + jSigmaR2 * jDensDer
+#Diff =                        jSigmaR2 * jDensDer
+jM = 1./G * ( jR**2 / jDensity * Diff + 2 * jR * ( jSigmaR2 - jSigmaT2 ) )
+#jM = jR**2 / ( G * jDensity ) * Diff 
 jeansMassDiff_1 = -jM
-jR_1 = jR.copy()
+jR_dif = jR.copy()
 ########################################################
-###Jeans Int	
+#Jeans Int	
 
-##jR       = r
-##jDensity = density
-##jDensDer = density_der
-##jSigmaR2 = sigmaR2
-##jSigR2Der = sigmaR2_der
-##jSigmaT2 = sigmaT2
+#jR       = r
+#jDeltaR  = profiles[pType]['binWidths'] 
+#jDensity = density
+#jSigmaR2 = sigmaR2
 
-###jR       = r_s
-###jDensity = density_s
-###jDensDer = density_der_s
-###jSigmaR2 = sigmaR2_s
-###jSigR2Der = sigmaR2_s_der
-###jSigmaT2 = sigmaT2_s
+jR       = r_smooth
+jDensity = dens_smooth
+jSigmaR2 = sigmaR2_smooth
 
-##nPoints = len(jR)
-##jeansMassInt = np.zeros( nPoints )
-##for n in range(nPoints-1,-1,-1):
-  ##r_n   = jR[n]
-  ##dr_n  = dr[n]
-  ##rho_n = jDensity[n]
-  ###dr_n  = jR[n] if n==0 else jR[n]-jR[n-1]
-  ##r_right    = jR[n+1:]
-  ##rho_right  = jDensity[n+1:]
-  ##mass_right = jeansMassInt[n+1:]
-  ##beta_right = betaVal
-  ##integrand  = rho_right * mass_right * r_right**(2*beta_right-2)
-  ##integral = 0 if len(integrand)==0 else simps( integrand, r_right )
-  ##sigmaR2_n = jSigmaR2[n]
-  ##beta_n    = betaVal
-  ##jeansMassInt[n] = sigmaR2_n * r_n**2 / ( G * dr_n ) - integral / ( rho_n * r_n**(2*beta_n-2) * dr_n )
-
+beta = betaVal[pType]
+nPoints = len(jR)
+jeansMassInt = np.zeros( nPoints )
+for n in range(nPoints-1,-1,-1):
+  r_n   = jR[n]
+  #dr_n  = jDeltaR[n]
+  dr_n  = jR[n] if n==0 else jR[n]-jR[n-1]
+  rho_n = jDensity[n]
+  r_right    = jR[n+1:]
+  rho_right  = jDensity[n+1:]
+  mass_right = jeansMassInt[n+1:]
+  #beta_right = betaVal
+  integrand  = rho_right * mass_right * r_right**(2*beta-2)
+  integral = 0 if len(integrand)==0 else simps( integrand, r_right )
+  sigmaR2_n = jSigmaR2[n]
+  #beta_n    = betaVal[pType]
+  jeansMassInt[n] = sigmaR2_n * r_n**2 / ( G * dr_n ) - integral / ( rho_n * r_n**(2*beta-2) * dr_n )
+jR_int = jR.copy()
 
 
 #####################################################
@@ -398,34 +405,24 @@ ax[0,1].set_xscale('log')
 #ax[0,1].set_yscale('log')
 ax[0,1].plot( r, density_der, '-o' )
 ax[0,1].plot( r_smooth, dens_sm_der, '-o' )
-#ax[0,1].plot( r_s, density_der_s, '-' )
 ax[0,1].set_xlim(r[0], r[-1])
 
 ax[1,0].set_xscale('log')
 ax[1,0].errorbar( r, sigmaR,  yerr=sigmaR/np.sqrt(nPart) )
+ax[1,0].plot( r_fine, sigmaR_fine, '-'   )
+ax[1,0].plot( r_smooth, sigmaR_smooth, '-o' )
 ax[1,0].errorbar( r, sigmaT,  yerr=sigmaT/np.sqrt(nPart) )
-#ax[1,0].plot( r_fine, sigmaR_fine, '-'   )
-#ax[1,0].plot( r_smooth, sigmaR_smooth, '-o' )
-#ax[1,0].plot( r_s, sigmaT_s, '-'   )
+ax[1,0].plot( r_fine, sigmaT_fine, '-'   )
+ax[1,0].plot( r_smooth, sigmaT_smooth, '-o' )
 ax[1,0].set_xlim(r[0], r[-1])
 
-##ax[1,1].set_xscale('log')
-##ax[1,1].plot( r, sigmaR_der, '-o' )
-##ax[1,1].plot( r_s, sigmaR_s_der, '-' )
-##ax[1,1].plot( r_s, sigmaR2_der, '-' )
-##ax[1,1].plot( r_s, 2*sigmaR_s*sigmaR_s_der, '-' )
 ax[1,1].set_xscale('log')
-ax[1,1].set_yscale('log')
-ax[1,1].plot( dist_dm, acumMass_dm )
-ax[1,1].plot( dist_all, acumMass_all )
-ax[1,1].plot( jR_0, jeansMassDiff_0, 'o' )
-ax[1,1].plot( jR_1, jeansMassDiff_1, 'o' )
-##ax[1,1].plot( r_s, jeansMassInt, 'o' )
+ax[1,1].plot( r, sigmaR2_der, '-o' )
+ax[1,1].plot( r_smooth, sigmaR2_sm_der, '-' )
+##ax[1,1].plot( r_s, 2*sigmaR_s*sigmaR_s_der, '-' )
 ax[1,1].set_xlim(r[0], r[-1])
-#ax[1,1].set_ylim(jeansMassDiff[0], jeansMassDiff[-1])
 
-fig.subplots_adjust(hspace=0)
-
+#fig.subplots_adjust(hspace=0)
 if binning == 'equiPart':  
   title = 'NperBin: {0}'.format( nPerBin )
   name = 'jeans_{0}'.format(nPerBin) 
@@ -435,6 +432,18 @@ if binning == 'exp' or binning == 'pow':
 ax[0,0].set_title(title)
 #fig.savefig(output+ name +'.png')
 fig.show()
+
+fig1 = plt.figure(1)
+fig1.clf()
+ax = fig1.add_subplot(111)
+ax.set_xscale('log')
+ax.set_yscale('log')
+ax.plot( dist_dm, acumMass_dm )
+ax.plot( dist_all, acumMass_all )
+ax.plot( jR_0, jeansMassDiff_0, 'o--' )
+ax.plot( jR_dif, jeansMassDiff_1, 'o--' )
+ax.plot( jR_int, jeansMassInt, 'o--' )
+fig1.show()
 
 ######################################################
 ##if jeansCalc == 'jeansInt':
