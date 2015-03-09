@@ -364,7 +364,6 @@ if findCenter_rks:
     output = outputDir + 'moveCenters/'
     if not os.path.exists( output ): os.makedirs( output )
     np.savetxt( output + 'rks_centers_{0}.dat'.format(snapshot), outData )
-
 for snapshot in snapshots:
   ms_rksCenters[snapshot] = {}
   halosFile = inputDir + 'halosData_{0}.h5'.format(snapshot)
@@ -377,110 +376,67 @@ for snapshot in snapshots:
     ms_rksCenters[snapshot][hId]['pos'] = center[2:]
 print " Time: ", time.time() - start 
 
-############################################################################## 
 
-#def getBallFromMassRatio( ballCenter, radiusInitial, massRatio, partMass_inHalo, tree):
-  #ball_pos    = ballCenter
-  #ball_radius = radiusInitial
-  #mass_total      = partMass_inHalo.sum()
-  #massRatio_current = 0 
-  #while massRatio_current < massRatio:
-    #inBall_ids = tree.query_ball_point( ball_pos, ball_radius )
-    #inBall_mass = partMass_inHalo[inBall_ids].sum()
-    #massRatio_current = inBall_mass/mass_total
-    ##print massRatio
-    #ball_radius += 0.5
-  #return ball_radius, massRatio_current 
 
-#def findCM( ball_pos, ball_radius, partMass_inHalo, partPos_inHalo, tree  ):
-  #inBall_ids = tree.query_ball_point( ball_pos, ball_radius )
-  #p_mass = partMass_inHalo[inBall_ids]
-  #p_pos  = partPos_inHalo[inBall_ids]
-  #cm = np.sum( (p_mass[:,None]*p_pos)/(p_mass.sum()), axis=0 )
-  #return cm, len( inBall_ids )  
+findCenters = False
+if findCenters:
+  print '\nGetting halo-galaxy centers...'
+  start = time.time()
+  output = outputDir + 'moveCenters/'
+  if not os.path.exists( output ): os.makedirs( output )
+  snapshot = max(snapshots)
+  hostId = ms_hostId[snapshot][0]
+  centers = {}
+  for pType in [ 'star', 'dm' ]:
+      centers[pType] = {}
+      partsPos  = ms_partsData[snapshot][pType]['pos'][...]*1e3
+      partsMass = ms_partsData[snapshot][pType]['mass'][...]
+      for hId in ms_halosWithStars[snapshot]['SM']:
+	hId = str( hId )
+	if hId == hostId: continue
+	print 'Halo : {0}'.format( hId )
+	haloPos   = ms_halosData[snapshot][hId].attrs['pos']*1e3
+	inHaloPartIds  = ms_halosPartsIds[snapshot][hId][pType+'_bound'][...]
+	inHaloPartPos  = partsPos[inHaloPartIds] 
+	inHaloPartMass = partsMass[inHaloPartIds]
+	center = getCenter( haloPos, inHaloPartPos, inHaloPartMass, rLast_cm=0.2, nPartLast_cm=40 )
+	centers[pType][hId] = center
+  print ' Saving centers...'
+  centersData = []
+  for hId in centers[pType].keys():
+    line = [ int(hId), centers['dm'][hId][0], centers['dm'][hId][1], centers['dm'][hId][2], centers['star'][hId][0], centers['star'][hId][1], centers['star'][hId][2] ]
+    centersData.append( line )  
+  centersData = np.array( centersData )
+  h = '#hId, c_dm_x, c_dm_y, c_dm_z,  c_st_x, c_st_y, c_st_z   '
+  np.savetxt(output + 'centers_{0}.dat'.format(snapshot), centersData, header=h )     
+  print ' Centers saved: ', output + 'centers_{0}.dat'.format(snapshot)
+  print " Time: ", time.time() - start  
+  
 
-#def findCenter_recursive( pos, radius, partMass_inHalo, partPos_inHalo, tree ):
-  #factor = 0.7
-  #nPartMin = 5
-  #rMin = 0.1
-  #cm, nInBall = findCM( pos, radius, partMass_inHalo, partPos_inHalo, tree )
-  #print '   nInBall: {0}          cm:{1}'.format(nInBall, cm)
-  #if nInBall < nPartMin or radius < rMin: return pos, radius
-  #findCenter_recursive( cm, radius*factor, partMass_inHalo, partPos_inHalo, tree )
-  
-#def findCenter( posInit, radiusInit, rMin, nPartMin, partMass_inHalo, partPos_inHalo, tree ):
-  #pos = posInit.copy()
-  #radius = radiusInit
-  #factor = 0.99
-  #cm, nInBall = findCM( pos, radius, partMass_inHalo, partPos_inHalo, tree )
-  ##while nInBall > nPartMin and radius > rMin:
-  #while True:
-    #print '   cm:{1} n:{0} r:{2}'.format(nInBall, cm, radius)
-    #radius_new = radius*factor
-    #cm_new, nInBall_new = findCM( cm, radius, partMass_inHalo, partPos_inHalo, tree )
-    #if nInBall_new < nPartMin or radius_new < rMin: return cm, radius, nInBall
-    #cm, radius, nInBall = cm_new, radius_new, nInBall_new
-  ##return cm, radius, nInBall
-  
-  
-  
-#if moveCM: 
-  #print '\nGetting halo-galaxy position off-set...'
-  #start = time.time()
-  #output = outputDir + 'moveCenters/'
-  #if not os.path.exists( output ): os.makedirs( output )
-  #snapshot = max(snapshots)
-  #hostId = ms_hostId[snapshot][0]
-  #hostPos = ms_halosData[snapshot][hostId].attrs['pos']*1e3
-  #for pType in [ 'star', 'dm' ]:
-    ##pType = 'star'
-    #centerData = []
-    #partsPos  = ms_partsData[snapshot][pType]['pos'][...]*1e3
-    #partsMass = ms_partsData[snapshot][pType]['mass'][...]
-    #for hId in ms_halosWithStars[snapshot]['SM']:
-      ##hId = ms_hostId[snapshot][0]
-      #hId = str( hId )
-      #if hId == hostId: continue
-      #print 'Halo : {0}'.format( hId )
-      #haloPos   = ms_halosData[snapshot][hId].attrs['pos']*1e3
-      #haloRvir  = ms_halosData[snapshot][hId].attrs['rvir']*1e3
-      #haloRvmax = ms_halosData[snapshot][hId].attrs['rvmax']*1e3
-      #rMin = 0.13
-      #nPartMin = 5
-      #inHaloPartIds   = ms_halosPartsIds[snapshot][hId][pType+'_bound'][...]
-      #partPos_inHalo  = partsPos[inHaloPartIds] 
-      #partMass_inHalo = partsMass[inHaloPartIds]
-      #tree = KDTree( partPos_inHalo )
-      #print "   Initial sphere:"  
-      #ball_pos = haloPos
-      #massRatio = 0.6 if pType == 'star' else 0.6
-      #ball_radius, massRatio_i = getBallFromMassRatio( haloPos, haloRvmax, massRatio, partMass_inHalo, tree )
-      #print '    massRatio_i: {0}'.format(massRatio_i)
-      #print '    ball_radius: {0}, rvmax: {1}, rvir: {2}'.format( ball_radius, haloRvmax, haloRvir )
-      #center, radius_f, nInBall_f = findCenter( ball_pos, ball_radius, rMin, nPartMin, partMass_inHalo, partPos_inHalo, tree )
-      #print '   cm:{1} n:{0} r:{2}'.format(nInBall_f, center, radius_f)
-      #centerData.append([ int(hId), nInBall_f, radius_f, center[0], center[1], center[2]])
-    #centerData = np.array( centerData )
-    #h = '#hId, nInBall, ball_radius, CM_ball_final, '
-    #np.savetxt(output + 'centers_{0}_{1}_{2}_byCM.dat'.format(snapshot, pType, int(rMin*1000) ), centerData, header=h )     
 
- 
 print '\nLoading centers...'
 start = time.time() 
 inputDir = outputDir + 'moveCenters/'
 ms_centers = {}
-CM_r = 150
-snapshot = max(snapshots)
-ms_centers[snapshot] = {}
-for CM_r in [ 100, 120, 130, 150 ]:
-  ms_centers[snapshot][CM_r] = {}
-  for pType in [ 'star', 'dm' ]:
-    centers_CM = np.loadtxt( inputDir + 'centers_{0}_{1}_{2}_byCM.dat'.format(snapshot, pType, int(CM_r) ) )
-    ms_centers[snapshot][CM_r][pType] = {}
-    for center in centers_CM:
-      ms_centers[snapshot][CM_r][pType][str( int(center[0]) )] = {}
-      ms_centers[snapshot][CM_r][pType][str( int(center[0]) )]['CM'] = center[3:]
+ms_offsets = {}
+for snap in [ 0, 1, 2, 3]:
+  ms_centers[snap] = { 'dm':{}, 'star':{} }
+  ms_offsets[snap] = {}
+  centersData = np.loadtxt( inputDir + 'centers_{0}.dat'.format(snapshot) )
+  for line in centersData:
+    hId = str( int( line[0] ) )
+    center_dm = line[1:4]
+    center_st = line[4:7]
+    ms_centers[snap]['dm'][hId] = center_dm
+    ms_centers[snap]['star'][hId] = center_st
+    ms_offsets[snap][hId] = np.sqrt( ( ( center_dm - center_st )**2 ).sum() )
 print " Time: ", time.time() - start  
+
+def printOffsets():
+  for hId in ms_offsets[snap].keys():
+    line = '{0}  {1:.1f}  {2:.1f}  {3:.1f}  {4:.1f}'.format(hId, ms_offsets[3][hId]*1e3, ms_offsets[2][hId]*1e3, ms_offsets[1][hId]*1e3, ms_offsets[0][hId]*1e3 )          
+    print line
+
 
 def printCenters( CM_r, snapshot=3 ):
   for hId in ms_halosWithStars[snapshot]['SM']:
