@@ -95,8 +95,8 @@ for pType in ['star', 'dm']:
   betaVal[pType] = 1 - ( sigma_tan2 / sigma_rad2 )
 
   #Profiles
-  binning = 'equiPart'
-  nPerBin = 200
+  binning = 'exp'
+  nPerBin = 750
   rMin, rMax = .110, distToCenter.max()
   nBins = nParticles / nPerBin
   if binning == 'pow' or binning == 'exp': nBins = 20
@@ -120,7 +120,7 @@ for pType in ['star', 'dm']:
   profiles[pType]['binVols'] = binVols
   
   #Fine profiles
-  npLeft = 100
+  npLeft = 80
   npRight = 80				
   rProf_f, dProf_f = fineProfile_dens( distToCenter, inHaloPartMass, npLeft, npRight )
   rProf_f, avgVelR_f, sigmaR_f = fineProfile_sigma( distToCenter, vel_radial_val, npLeft, npRight )
@@ -133,12 +133,13 @@ for pType in ['star', 'dm']:
   profiles[pType]['sigmaT_fine'] = sigmaT_f
   
   #Smooth fine profiles
-  nAverg = 200
+  nAverg = 300
   step = 200
-  r_smooth , dens_smooth = smooth( rProf_f, dProf_f, nAverg, step )
-  r_smooth , sigmaR_smooth = smooth( rProf_f, sigmaR_f, nAverg, step )
-  r_smooth , sigmaT_smooth = smooth( rProf_f, sigmaT_f, nAverg, step )
+  r_smooth, widths_smooth, dens_smooth = smooth( rProf_f, dProf_f, nAverg, step )
+  r_smooth, widths_smooth, sigmaR_smooth = smooth( rProf_f, sigmaR_f, nAverg, step )
+  r_smooth, widths_smooth, sigmaT_smooth = smooth( rProf_f, sigmaT_f, nAverg, step )
   profiles[pType]['r_smooth'] = r_smooth	
+  profiles[pType]['widths_smooth'] = widths_smooth
   profiles[pType]['dens_smooth'] = dens_smooth
   profiles[pType]['sigmaR_smooth'] = sigmaR_smooth
   profiles[pType]['sigmaT_smooth'] = sigmaT_smooth
@@ -248,33 +249,56 @@ jR_dif = jR.copy()
 ########################################################
 #Jeans Int	
 
-#jR       = r
-#jDeltaR  = profiles[pType]['binWidths'] 
-#jDensity = density
-#jSigmaR2 = sigmaR2
-
-jR       = r_smooth
-jDensity = dens_smooth
-jSigmaR2 = sigmaR2_smooth
-
+jR       = r
+jDeltaR  = profiles[pType]['binWidths'] 
+jDensity = density
+jSigmaR2 = sigmaR2
 beta = betaVal[pType]
 nPoints = len(jR)
-jeansMassInt = np.zeros( nPoints )
+jeansMassInt_0 = np.zeros( nPoints )
 for n in range(nPoints-1,-1,-1):
   r_n   = jR[n]
-  #dr_n  = jDeltaR[n]
-  dr_n  = jR[n] if n==0 else jR[n]-jR[n-1]
+  dr_n  = jDeltaR[n]
+  #if n == nPoints-1: dr_n = jR[n]-jR[n-1]
+  #else: dr_n  = jR[n] if n==0 else (jR[n+1]-jR[n-1])/2.
   rho_n = jDensity[n]
   r_right    = jR[n+1:]
   rho_right  = jDensity[n+1:]
-  mass_right = jeansMassInt[n+1:]
+  mass_right = jeansMassInt_0[n+1:]
   #beta_right = betaVal
   integrand  = rho_right * mass_right * r_right**(2*beta-2)
   integral = 0 if len(integrand)==0 else simps( integrand, r_right )
   sigmaR2_n = jSigmaR2[n]
   #beta_n    = betaVal[pType]
-  jeansMassInt[n] = sigmaR2_n * r_n**2 / ( G * dr_n ) - integral / ( rho_n * r_n**(2*beta-2) * dr_n )
-jR_int = jR.copy()
+  jeansMassInt_0[n] = sigmaR2_n * r_n**2 / ( G * dr_n ) - integral / ( rho_n * r_n**(2*beta-2) * dr_n )
+jR_int_0 = jR.copy()
+
+
+
+
+jR       = r_smooth
+jDeltaR  = profiles[pType]['widths_smooth'] 
+jDensity = dens_smooth
+jSigmaR2 = sigmaR2_smooth
+beta = betaVal[pType]
+nPoints = len(jR)
+jeansMassInt_1 = np.zeros( nPoints )
+for n in range(nPoints-1,-1,-1):
+  r_n   = jR[n]
+  dr_n  = jDeltaR[n]
+  #if n == nPoints-1: dr_n = jR[n]-jR[n-1]
+  #else: dr_n  = jR[n] if n==0 else (jR[n+1]-jR[n-1])/2.
+  rho_n = jDensity[n]
+  r_right    = jR[n+1:]
+  rho_right  = jDensity[n+1:]
+  mass_right = jeansMassInt_1[n+1:]
+  #beta_right = betaVal
+  integrand  = rho_right * mass_right * r_right**(2*beta-2)
+  integral = 0 if len(integrand)==0 else simps( integrand, r_right )
+  sigmaR2_n = jSigmaR2[n]
+  #beta_n    = betaVal[pType]
+  jeansMassInt_1[n] = sigmaR2_n * r_n**2 / ( G * dr_n ) - integral / ( rho_n * r_n**(2*beta-2) * dr_n )
+jR_int_1 = jR.copy()
 
 
 #####################################################
@@ -297,9 +321,10 @@ ax.set_xscale('log')
 ax.set_yscale('log')
 ax.plot( dist_dm, acumMass_dm )
 ax.plot( dist_all, acumMass_all )
-ax.plot( jR_0, jeansMassDiff_0, 'o--' )
-ax.plot( jR_dif, jeansMassDiff_1, 'o--' )
-ax.plot( jR_int, jeansMassInt, 'o--' )
+#ax.plot( jR_0, jeansMassDiff_0, 'o--' )
+#ax.plot( jR_dif, jeansMassDiff_1, 'o--' )
+ax.plot( jR_int_0, jeansMassInt_0, 'o--' )
+ax.plot( jR_int_1, jeansMassInt_1, 'o--' )
 fig1.show()
 
 
