@@ -289,7 +289,7 @@ ax[1,1].plot( r_bin, sigmaR2_der_bin, 'o-' )
 ax[1,1].plot( r_samples, sigmaR2_der_samples, 'o-' )
 ax[1,1].axvline( x=haloRvmax, color='m')
 ax[1,1].set_xlim(r_bin[0], r_bin[-1])
-title = 'id:{2}, mDM:{0:1.1e},  mS:{3:1.1e},  d:{1:.0f} kpc,  nS:{4:1.1e}'.format(haloMass, distToHost, hId, sMass, nParticles['star'] )
+title = 'mD:{0:1.1e}, mS:{3:1.1e}, d:{1:.0f} kpc, nS:{4:1.1e}'.format(haloMass, distToHost, hId, sMass, nParticles['star'] )
 ax[0,0].set_title( title )
 fig.show()
 
