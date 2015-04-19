@@ -14,12 +14,15 @@ MPIcomm = MPI.COMM_WORLD
 pId = MPIcomm.Get_rank()
 nProc = MPIcomm.Get_size()
 
-paramNumber = 's00'
+paramNumber = 'rg01'
 h = 0.7
+useRKS_GAL = True
+
 
 dataDir = "/home/bruno/Desktop/data/galaxy/"
 rockstarDir = '/home/bruno/apps/rockstar-galaxies/'
-rockstarComand = rockstarDir + 'rockstar-galaxies'
+rockstarDir = '/home/bruno/apps/rockstar-galaxies/' if useRKS_GAL else '/home/bruno/apps/rockstar/' 
+rockstarComand = rockstarDir + 'rockstar-galaxies'  if useRKS_GAL else rockstarDir + 'rockstar'
 rockstarOutput = dataDir + 'halos/{0}/multi_snap'.format( paramNumber )
 
 DM_particleMass = 92496.7        #Msun
@@ -29,8 +32,8 @@ rockstarConf = {
 'h0': 0.7,                           #<hubble constant today> # in units of 100 km/s/Mpc
 'Ol': 0.73,                          #<Omega_Lambda> # in units of the critical density
 'Om': 0.27,                          #<Omega_Matter> # in units of the critical density
-#'BOX_SIZE': 1.7*h,                    #Mpc/h
-'BOX_SIZE': 30*h,
+'BOX_SIZE': 1.7*h,                    #Mpc/h
+#'BOX_SIZE': 30*h,
 'TOTAL_PARTICLES': 28e6,
 'PARTICLE_MASS': DM_particleMass*h,             #Msun/h
 'TIPSY_LENGTH_CONVERSION': 28.7*h,   #Typically, box size in Mpc/h
@@ -45,7 +48,7 @@ parallelConf = {
 'PARALLEL_IO': 1,
 'PERIODIC': 0,                                #non-periodic boundary conditions
 'NUM_BLOCKS': 1,                              # <number of files per snapshot>
-'NUM_SNAPS': 1,                               # <total number of snapshots>
+'NUM_SNAPS': 4,                               # <total number of snapshots>
 'INBASE': '"' + dataDir + 'snapshots"',               #"/directory/where/files/are/located"
 'FILENAME': '"Galbox_<snap>.<block>.bin"',       #"my_sim.<snap>.<block>"
 'NUM_WRITERS': 1,                             #<number of CPUs>
